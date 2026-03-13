@@ -11,3 +11,9 @@ services:
       - BASE_URL=http://localhost:8088
       # - BASE_URL=http://your-domain.com:8088  # For production
     restart: unless-stopped
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    external: true

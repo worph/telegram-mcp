@@ -1,10 +1,11 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { Request, Response, Router } from "express";
+import express, { Request, Response, Router } from "express";
 import * as os from "os";
 import { TelegramBot } from "./bot";
 import { SendMessageParams, SendPhotoParams } from "./types";
@@ -296,6 +297,24 @@ export class MCPServer {
 
   createRouter(): Router {
     const router = Router();
+
+    // Stateless HTTP POST endpoint for direct JSON-RPC calls (e.g. from claude-code-container)
+    router.post("/", express.json(), async (req: Request, res: Response) => {
+      console.log("MCP HTTP POST request received");
+
+      const server = this.createServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined, // stateless mode
+      });
+
+      // Clean up server when transport closes
+      res.on("close", () => {
+        server.close().catch(console.error);
+      });
+
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+    });
 
     // SSE endpoint for MCP
     router.get("/sse", async (req: Request, res: Response) => {

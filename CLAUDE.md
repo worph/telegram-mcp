@@ -36,7 +36,7 @@ This is a bidirectional Telegram bot that integrates with the Model Context Prot
 
 - **`src/index.ts`** - Entry point that wires together all components and handles graceful shutdown
 - **`src/bot.ts`** - grammY-based Telegram bot that handles incoming messages and exposes `sendMessage`/`sendPhoto` methods
-- **`src/mcp-server.ts`** - MCP server exposing Telegram tools (`send_message`, `send_photo`, `echo`, `mcp_info`) via SSE transport at `/mcp/sse`
+- **`src/mcp-server.ts`** - MCP server exposing Telegram tools (`send_message`, `send_photo`, `echo`, `mcp_info`) via SSE/HTTP transport at `/mcp`
 - **`src/mcp-client.ts`** - MCP client that connects to a target MCP server to forward incoming messages
 - **`src/api.ts`** - Express REST API for the Web UI configuration interface
 - **`src/config.ts`** - Configuration loading/saving with Zod validation from `config.json`
@@ -59,6 +59,19 @@ Configuration is managed via `config.json` with three sections:
 - `server`: Web UI port
 
 The Web UI at `http://localhost:8080` allows runtime configuration. The `/api/restart` endpoint reloads config and reconnects both bot and MCP client.
+
+### Permission Flow
+
+Permission prompts are handled via a REST endpoint (`POST /api/permission`) rather than MCP tools. The flow:
+
+1. `claude-code-container`'s `server.js` spawns Claude CLI with `permission-mcp.js` as a stdio MCP server
+2. Claude CLI calls `permission_prompt` tool on `permission-mcp.js` when it needs approval
+3. `permission-mcp.js` sends a plain `POST` to `permissionCallbackUrl` (e.g., `http://telegram-mcp:8080/api/permission`)
+4. `api.ts` receives the request and delegates to `PermissionService.requestPermission()`
+5. Telegram user sees inline keyboard (Allow/Deny/Always Allow), clicks a button
+6. Response `{ queryId, decision, timedOut }` is returned as plain JSON — no SSE, no JSON-RPC unwrapping
+
+The callback URL is passed per-request via `params.permissionCallbackUrl` in the target config, so no static env var is needed on the claude-code container.
 
 ### Template Variables
 

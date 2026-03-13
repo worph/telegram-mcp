@@ -12,6 +12,7 @@ export const TargetConfigSchema = z.object({
   url: z.string().url(),
   tool: z.string().min(1),
   params: z.record(z.any()),
+  authToken: z.string().optional(),
 });
 
 export const ServerConfigSchema = z.object({
@@ -63,4 +64,42 @@ export interface SendPhotoParams {
   chatId: string;
   url: string;
   caption?: string;
+}
+
+// Permission request from claude-code-container
+export interface PermissionRequest {
+  queryId: string;
+  chatId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  description?: string;
+  timeout?: number;
+}
+
+// Permission response back to claude-code-container
+export interface PermissionResponse {
+  queryId: string;
+  decision: "allow" | "deny";
+  timedOut?: boolean;
+}
+
+// Internal pending permission tracking
+export interface PendingPermission {
+  queryId: string;
+  chatId: string;
+  messageId: number;
+  toolName: string;
+  resolve: (response: PermissionResponse) => void;
+  reject: (error: Error) => void;
+  timeoutId: NodeJS.Timeout;
+}
+
+// Handle permission tool params
+export interface HandlePermissionParams {
+  queryId: string;
+  chatId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  description?: string;
+  timeout?: number;
 }

@@ -1,11 +1,36 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { TargetConfig } from "./types";
+
+/**
+ * Wraps a transport to silently ignore errors when sending
+ * 'notifications/initialized', which some servers don't support.
+ */
+function wrapTransport(inner: Transport): Transport {
+  const originalSend = inner.send.bind(inner);
+  inner.send = async (message: JSONRPCMessage) => {
+    if ("method" in message && message.method === "notifications/initialized") {
+      try {
+        await originalSend(message);
+      } catch (err: any) {
+        console.warn(
+          "MCP server does not support notifications/initialized, continuing anyway"
+        );
+      }
+      return;
+    }
+    return originalSend(message);
+  };
+  return inner;
+}
 
 export class MCPClient {
   private config: TargetConfig;
   private client: Client | null = null;
-  private transport: SSEClientTransport | null = null;
+  private transport: Transport | null = null;
   private connected = false;
 
   constructor(config: TargetConfig) {
@@ -29,11 +54,31 @@ export class MCPClient {
       );
 
       const url = new URL(this.config.url);
-      this.transport = new SSEClientTransport(url);
+      const headers: Record<string, string> = {};
+      if (this.config.authToken) {
+        headers["Authorization"] = `Bearer ${this.config.authToken}`;
+      }
+
+      let rawTransport: Transport;
+      if (this.config.transport === "http") {
+        rawTransport = new StreamableHTTPClientTransport(url, {
+          requestInit: {
+            headers,
+          },
+        });
+      } else {
+        rawTransport = new SSEClientTransport(url, {
+          requestInit: {
+            headers,
+          },
+        });
+      }
+
+      this.transport = wrapTransport(rawTransport);
 
       await this.client.connect(this.transport);
       this.connected = true;
-      console.log(`MCP Client connected to ${this.config.url}`);
+      console.log(`MCP Client connected to ${this.config.url} (${this.config.transport})`);
     } catch (error) {
       this.connected = false;
       console.error("Failed to connect MCP client:", error);
@@ -64,6 +109,8 @@ export class MCPClient {
       const result = await this.client.callTool({
         name: toolName,
         arguments: params,
+      }, undefined, {
+        timeout: 180_000, // 3 minutes to allow for permission prompts
       });
 
       return result;

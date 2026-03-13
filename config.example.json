@@ -4,13 +4,13 @@
     "mode": "polling"
   },
   "target": {
-    "transport": "sse",
-    "url": "http://localhost:8080/mcp/sse",
-    "tool": "echo",
+    "transport": "http",
+    "url": "http://claude-code:8080/mcp",
+    "tool": "query_claude",
     "params": {
-      "message": "{{text}}",
+      "prompt": "{{text}}",
       "chatId": "{{chatId}}",
-      "username": "{{username}}"
+      "enablePermissionPrompts": true
     }
   },
   "server": {

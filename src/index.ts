@@ -3,6 +3,7 @@ import { TelegramBot } from "./bot";
 import { loadConfig } from "./config";
 import { MCPClient } from "./mcp-client";
 import { MCPServer } from "./mcp-server";
+import { PermissionService } from "./permission-service";
 
 async function main(): Promise<void> {
   console.log("Starting Telegram MCP...");
@@ -13,8 +14,12 @@ async function main(): Promise<void> {
   const bot = new TelegramBot(config);
   const mcpClient = new MCPClient(config.target);
   const mcpServer = new MCPServer(bot);
+  const permissionService = new PermissionService();
 
+  // Wire up dependencies
   bot.setMCPClient(mcpClient);
+  bot.setPermissionService(permissionService);
+  permissionService.setBot(bot);
 
   const restart = async (): Promise<void> => {
     console.log("Restarting...");
@@ -42,6 +47,7 @@ async function main(): Promise<void> {
     bot,
     mcpClient,
     mcpServer,
+    permissionService,
     onRestart: restart,
   });
 

@@ -4,12 +4,14 @@ import { TelegramBot } from "./bot";
 import { getMaskedConfig, loadConfig, saveConfig, validateConfig } from "./config";
 import { MCPClient } from "./mcp-client";
 import { MCPServer } from "./mcp-server";
-import { Config } from "./types";
+import { PermissionService } from "./permission-service";
+import { Config, HandlePermissionParams } from "./types";
 
 export interface ApiDependencies {
   bot: TelegramBot;
   mcpClient: MCPClient;
   mcpServer: MCPServer;
+  permissionService: PermissionService;
   onRestart: () => Promise<void>;
 }
 
@@ -96,6 +98,33 @@ function createApiRouter(deps: ApiDependencies): Router {
         connected: mcpConnected,
       },
     });
+  });
+
+  router.post("/permission", async (req: Request, res: Response) => {
+    try {
+      const params = req.body as HandlePermissionParams;
+      if (!params.queryId || !params.chatId || !params.toolName || !params.toolInput) {
+        res.status(400).json({ error: "Missing required parameters: queryId, chatId, toolName, toolInput" });
+        return;
+      }
+
+      console.log(`Permission request: ${params.toolName} for chat ${params.chatId}`);
+
+      const response = await deps.permissionService.requestPermission({
+        queryId: params.queryId,
+        chatId: params.chatId,
+        toolName: params.toolName,
+        toolInput: params.toolInput,
+        description: params.description,
+        timeout: params.timeout,
+      });
+
+      res.json(response);
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Permission request failed",
+      });
+    }
   });
 
   return router;
