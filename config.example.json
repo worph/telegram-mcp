@@ -1,0 +1,19 @@
+{
+  "telegram": {
+    "botToken": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
+    "mode": "polling"
+  },
+  "target": {
+    "transport": "sse",
+    "url": "http://localhost:8080/mcp/sse",
+    "tool": "echo",
+    "params": {
+      "message": "{{text}}",
+      "chatId": "{{chatId}}",
+      "username": "{{username}}"
+    }
+  },
+  "server": {
+    "port": 8080
+  }
+}
