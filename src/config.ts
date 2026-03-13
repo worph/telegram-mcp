@@ -4,9 +4,36 @@ import { Config, ConfigSchema } from "./types";
 
 const CONFIG_PATH = process.env.CONFIG_PATH || path.join(process.cwd(), "config.json");
 
+const DEFAULT_CONFIG: Config = {
+  telegram: {
+    botToken: "000000000:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    mode: "polling",
+  },
+  target: {
+    transport: "sse",
+    url: "http://localhost:8080/mcp/sse",
+    tool: "echo",
+    params: {
+      message: "{{text}}",
+      chatId: "{{chatId}}",
+      username: "{{username}}",
+    },
+  },
+  server: {
+    port: 8080,
+  },
+};
+
 export function loadConfig(): Config {
   if (!fs.existsSync(CONFIG_PATH)) {
-    throw new Error(`Config file not found: ${CONFIG_PATH}`);
+    console.log(`Config file not found at ${CONFIG_PATH}, creating default config...`);
+    const configDir = path.dirname(CONFIG_PATH);
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2), "utf-8");
+    console.log(`Default config created. Please update it with your Telegram bot token and MCP server settings.`);
+    return DEFAULT_CONFIG;
   }
 
   const rawContent = fs.readFileSync(CONFIG_PATH, "utf-8");
