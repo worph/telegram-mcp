@@ -374,6 +374,38 @@
 <body>
   <h1>Telegram MCP</h1>
 
+  <!-- About Section -->
+  <div class="card" id="about-card">
+    <div class="card-header collapsible" onclick="toggleAbout()">
+      <h2>What is this?</h2>
+    </div>
+    <div id="about-content">
+      <p style="color: #555; line-height: 1.6; margin: 0 0 16px;">
+        Telegram MCP is a bridge between Telegram and any
+        <a href="https://modelcontextprotocol.io" target="_blank" style="color: #0088cc; text-decoration: none; font-weight: 500;">MCP</a>-compatible server.
+        Messages you send to the bot get forwarded as tool calls, and the response comes back as a reply.
+      </p>
+
+      <div style="background: #f8f9fa; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+        <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">Example uses</div>
+        <ul style="margin: 0; padding-left: 20px; color: #555; font-size: 14px; line-height: 1.8;">
+          <li><strong>Echo test</strong> &mdash; Use the built-in echo tool to verify everything works. Messages you send come right back.</li>
+          <li><strong>Claude Code</strong> &mdash; Point it at a <code>claude-code-container</code> to run Claude from Telegram, with permission prompts for file writes and shell commands.</li>
+          <li><strong>Any MCP server</strong> &mdash; Connect to any tool on any MCP endpoint. Map Telegram message fields to tool parameters with <code>{{text}}</code>, <code>{{chatId}}</code>, etc.</li>
+        </ul>
+      </div>
+
+      <div style="background: #f8f9fa; border-radius: 8px; padding: 16px;">
+        <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">Quick start</div>
+        <ol style="margin: 0; padding-left: 20px; color: #555; font-size: 14px; line-height: 1.8;">
+          <li>Create a bot via <a href="https://t.me/BotFather" target="_blank" style="color: #0088cc; text-decoration: none; font-weight: 500;">@BotFather</a> and paste the token below</li>
+          <li>Pick a preset (Echo to test, or Claude Code Container) or enter a custom MCP endpoint</li>
+          <li>Send a message to your bot on Telegram</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
   <!-- Telegram Section -->
   <div class="card" id="telegram-card">
     <div class="card-header">
@@ -423,10 +455,16 @@
         <input type="password" id="botTokenEdit" placeholder="123456789:ABCdef...">
 
         <label for="mode">Mode</label>
-        <select id="mode">
+        <select id="mode" onchange="toggleWebhookUrl()">
           <option value="polling">Polling</option>
-          <option value="webhook">Webhook (not implemented)</option>
+          <option value="webhook">Webhook</option>
         </select>
+
+        <div id="webhookUrlGroup" class="hidden">
+          <label for="webhookUrl">Webhook URL</label>
+          <input type="url" id="webhookUrl" placeholder="https://example.com/webhook">
+          <p class="hint">Public HTTPS URL. Telegram will POST updates to <code>&lt;your-domain&gt;/webhook</code></p>
+        </div>
       </div>
 
       <div class="card-actions">
@@ -493,6 +531,14 @@
       <!-- Collapsible edit form -->
       <div id="mcp-edit-form" class="hidden">
         <div class="edit-form-content">
+          <label for="preset">Preset</label>
+          <select id="preset" onchange="applyPreset()">
+            <option value="">Custom</option>
+            <option value="echo">Echo (built-in test)</option>
+            <option value="query_claude">Claude Code Container</option>
+          </select>
+          <p class="hint">Select a preset to auto-fill the fields below, or choose Custom</p>
+
           <label for="transport">Transport</label>
           <select id="transport">
             <option value="sse">SSE</option>
@@ -502,6 +548,10 @@
           <label for="targetUrl">MCP Server URL</label>
           <input type="url" id="targetUrl" placeholder="http://localhost:8080/mcp/sse">
           <p class="hint">Use <code>http://localhost:8080/mcp/sse</code> for the built-in echo server</p>
+
+          <label for="authToken">Auth Token</label>
+          <input type="password" id="authToken" placeholder="Optional bearer token">
+          <p class="hint">Required for claude-code-container (same as AUTH_PASSWORD)</p>
 
           <label for="tool">Tool Name</label>
           <input type="text" id="tool" placeholder="echo">

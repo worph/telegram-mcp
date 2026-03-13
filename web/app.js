@@ -80,12 +80,27 @@ async function loadConfig() {
     // Populate running form
     document.getElementById('botTokenEdit').value = currentConfig.telegram.botToken;
     document.getElementById('mode').value = currentConfig.telegram.mode || 'polling';
+    // Auto-fill webhook URL from PUBLIC_URL env if not already set
+    let webhookUrlValue = currentConfig.telegram.webhookUrl || '';
+    if (!webhookUrlValue) {
+      try {
+        const pubRes = await fetch('/api/public-url');
+        if (pubRes.ok) {
+          const { webhookUrl: envWebhookUrl } = await pubRes.json();
+          if (envWebhookUrl) webhookUrlValue = envWebhookUrl;
+        }
+      } catch (e) { /* ignore */ }
+    }
+    document.getElementById('webhookUrl').value = webhookUrlValue;
+    toggleWebhookUrl();
 
     // Populate MCP form
     document.getElementById('transport').value = currentConfig.target.transport;
     document.getElementById('targetUrl').value = currentConfig.target.url;
+    document.getElementById('authToken').value = currentConfig.target.authToken || '';
     document.getElementById('tool').value = currentConfig.target.tool;
     document.getElementById('params').value = JSON.stringify(currentConfig.target.params, null, 2);
+    document.getElementById('preset').value = detectPreset(currentConfig.target);
 
     // Update MCP display
     updateMCPDisplay();
@@ -167,11 +182,16 @@ async function connectBot() {
 // Save Telegram settings
 async function saveTelegram() {
   try {
+    const mode = document.getElementById('mode').value;
+    const telegram = {
+      botToken: document.getElementById('botTokenEdit').value,
+      mode: mode,
+    };
+    if (mode === 'webhook') {
+      telegram.webhookUrl = document.getElementById('webhookUrl').value.trim();
+    }
     const config = {
-      telegram: {
-        botToken: document.getElementById('botTokenEdit').value,
-        mode: document.getElementById('mode').value,
-      },
+      telegram: telegram,
       target: currentConfig.target,
       server: { port: 8080 },
     };
@@ -207,14 +227,20 @@ async function saveMCP() {
       return;
     }
 
+    const authToken = document.getElementById('authToken').value.trim();
+    const target = {
+      transport: document.getElementById('transport').value,
+      url: document.getElementById('targetUrl').value,
+      tool: document.getElementById('tool').value,
+      params: params,
+    };
+    if (authToken) {
+      target.authToken = authToken;
+    }
+
     const config = {
       telegram: currentConfig.telegram,
-      target: {
-        transport: document.getElementById('transport').value,
-        url: document.getElementById('targetUrl').value,
-        tool: document.getElementById('tool').value,
-        params: params,
-      },
+      target: target,
       server: { port: 8080 },
     };
 
@@ -282,6 +308,55 @@ function toggleMCPEdit() {
   }
 }
 
+// Preset configurations
+const PRESETS = {
+  echo: {
+    transport: 'sse',
+    url: 'http://localhost:8080/mcp/sse',
+    authToken: '',
+    tool: 'echo',
+    params: {
+      message: '{{text}}',
+      chatId: '{{chatId}}',
+      username: '{{username}}',
+    },
+  },
+  query_claude: {
+    transport: 'http',
+    url: 'http://claude-code-app-dev:8080/mcp',
+    authToken: '',
+    tool: 'query_claude',
+    params: {
+      prompt: '{{text}}',
+      chatId: '{{chatId}}',
+      permissionCallbackUrl: 'http://telegram-mcp:8080/api/permission',
+    },
+  },
+};
+
+// Apply a preset to the form
+function applyPreset() {
+  const presetName = document.getElementById('preset').value;
+  if (!presetName || !PRESETS[presetName]) return;
+
+  const preset = PRESETS[presetName];
+  document.getElementById('transport').value = preset.transport;
+  document.getElementById('targetUrl').value = preset.url;
+  document.getElementById('authToken').value = preset.authToken;
+  document.getElementById('tool').value = preset.tool;
+  document.getElementById('params').value = JSON.stringify(preset.params, null, 2);
+}
+
+// Detect which preset matches current config
+function detectPreset(target) {
+  for (const [name, preset] of Object.entries(PRESETS)) {
+    if (target.tool === preset.tool && target.transport === preset.transport) {
+      return name;
+    }
+  }
+  return '';
+}
+
 // Update MCP display
 function updateMCPDisplay() {
   if (currentConfig) {
@@ -302,6 +377,25 @@ async function testEcho() {
     return;
   }
   showToast('Send a message to your bot on Telegram to test the echo!');
+}
+
+// Toggle webhook URL field visibility
+function toggleWebhookUrl() {
+  const mode = document.getElementById('mode').value;
+  const group = document.getElementById('webhookUrlGroup');
+  if (mode === 'webhook') {
+    group.classList.remove('hidden');
+  } else {
+    group.classList.add('hidden');
+  }
+}
+
+// Toggle about card
+function toggleAbout() {
+  const content = document.getElementById('about-content');
+  const header = document.querySelector('#about-card .card-header');
+  content.classList.toggle('hidden');
+  header.classList.toggle('collapsed');
 }
 
 // Initialize

@@ -1,4 +1,6 @@
-import { Bot, Context } from "grammy";
+import { Bot, Context, webhookCallback } from "grammy";
+import crypto from "crypto";
+import { RequestHandler } from "express";
 import { BotStatus, Config, MessageContext } from "./types";
 import { createMessageContext, resolveTemplate } from "./template";
 import { MCPClient } from "./mcp-client";
@@ -79,6 +81,8 @@ export class TelegramBot {
   private permissionService: PermissionService | null = null;
   private status: BotStatus = { running: false };
   private isShuttingDown = false;
+  private currentMode: "polling" | "webhook" = "polling";
+  private webhookMiddleware: RequestHandler | null = null;
   // Chat IDs that should start a new conversation on their next message
   private newSessionChats: Set<string> = new Set();
 
@@ -221,11 +225,29 @@ export class TelegramBot {
         { command: "start", description: "Show help message" },
       ]);
 
-      this.bot.start({
-        onStart: () => {
-          console.log("Bot polling started");
-        },
-      });
+      this.currentMode = this.config.telegram.mode || "polling";
+
+      if (this.currentMode === "webhook") {
+        const publicUrl = process.env.PUBLIC_URL?.replace(/\/$/, "");
+        const webhookUrl = this.config.telegram.webhookUrl
+          || (publicUrl ? `${publicUrl}/webhook` : null);
+        if (!webhookUrl) {
+          throw new Error("Webhook mode requires webhookUrl in config or PUBLIC_URL env var");
+        }
+        const secretToken = crypto.randomUUID();
+        await this.bot.api.setWebhook(webhookUrl, { secret_token: secretToken });
+        this.webhookMiddleware = webhookCallback(this.bot, "express", { secretToken });
+        console.log(`Bot webhook set to ${webhookUrl}`);
+      } else {
+        // Clear any stale webhook when switching to polling
+        await this.bot.api.deleteWebhook();
+        this.webhookMiddleware = null;
+        this.bot.start({
+          onStart: () => {
+            console.log("Bot polling started");
+          },
+        });
+      }
     } catch (err) {
       this.status.running = false;
       this.status.error = String(err);
@@ -238,11 +260,23 @@ export class TelegramBot {
     if (this.bot && !this.isShuttingDown) {
       this.isShuttingDown = true;
       console.log("Stopping bot...");
+      if (this.currentMode === "webhook") {
+        try {
+          await this.bot.api.deleteWebhook();
+        } catch (err) {
+          console.warn("Failed to delete webhook on stop:", err);
+        }
+      }
       await this.bot.stop();
       this.bot = null;
+      this.webhookMiddleware = null;
       this.status.running = false;
       console.log("Bot stopped");
     }
+  }
+
+  getWebhookMiddleware(): RequestHandler | null {
+    return this.webhookMiddleware;
   }
 
   getStatus(): BotStatus {

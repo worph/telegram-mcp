@@ -21,6 +21,16 @@ export function createApi(deps: ApiDependencies): express.Application {
   // Mount MCP server routes BEFORE json middleware (MCP needs raw body)
   app.use("/mcp", deps.mcpServer.createRouter());
 
+  // Mount webhook route with its own JSON parser (before the global one, after MCP)
+  app.post("/webhook", express.json(), (req, res, next) => {
+    const handler = deps.bot.getWebhookMiddleware();
+    if (handler) {
+      handler(req, res, next);
+    } else {
+      res.status(404).json({ error: "Webhook not active" });
+    }
+  });
+
   app.use(express.json());
   app.use(express.static(path.join(__dirname, "../web")));
 
@@ -98,6 +108,11 @@ function createApiRouter(deps: ApiDependencies): Router {
         connected: mcpConnected,
       },
     });
+  });
+
+  router.get("/public-url", (_req: Request, res: Response) => {
+    const publicUrl = process.env.PUBLIC_URL?.replace(/\/$/, "") || "";
+    res.json({ publicUrl, webhookUrl: publicUrl ? `${publicUrl}/webhook` : "" });
   });
 
   router.post("/permission", async (req: Request, res: Response) => {

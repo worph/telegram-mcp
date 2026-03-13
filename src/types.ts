@@ -5,7 +5,10 @@ export const TelegramConfigSchema = z.object({
   botToken: z.string().regex(/^\d+:[A-Za-z0-9_-]+$/, "Invalid bot token format"),
   mode: z.enum(["polling", "webhook"]).default("polling"),
   webhookUrl: z.string().url().optional(),
-});
+}).refine(
+  (data) => data.mode !== "webhook" || !!data.webhookUrl || !!process.env.PUBLIC_URL,
+  { message: "webhookUrl is required when mode is 'webhook' (or set PUBLIC_URL env)", path: ["webhookUrl"] }
+);
 
 export const TargetConfigSchema = z.object({
   transport: z.enum(["http", "sse"]),
