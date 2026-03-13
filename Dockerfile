@@ -50,6 +50,12 @@ COPY web/ ./web/
 # Copy example config (user should mount their own config.json)
 COPY config.example.json ./config.example.json
 
+# Create data directory for config (writable by container)
+RUN mkdir -p /app/data
+
+# Set default config path to writable data directory
+ENV CONFIG_PATH=/app/data/config.json
+
 # Expose port
 EXPOSE 8080
 
