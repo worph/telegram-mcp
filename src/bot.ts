@@ -5,6 +5,7 @@ import { BotStatus, Config, MessageContext } from "./types";
 import { createMessageContext, resolveTemplate } from "./template";
 import { MCPClient } from "./mcp-client";
 import { PermissionService } from "./permission-service";
+import { saveConfig } from "./config";
 
 // Characters that must be escaped in MarkdownV2 outside of code blocks
 const MD_SPECIAL = /([_*\[\]()~`>#+\-=|{}.!\\])/g;
@@ -104,22 +105,45 @@ export class TelegramBot {
     }
 
     this.isShuttingDown = false;
+
+    // Recover chatId from pending updates before grammY consumes them
+    if (!this.config.telegram.chatId) {
+      try {
+        const resp = await fetch(
+          `https://api.telegram.org/bot${this.config.telegram.botToken}/getUpdates?limit=1&offset=-1`
+        );
+        const data = await resp.json() as { ok: boolean; result: Array<{ message?: { chat: { id: number } } }> };
+        const chatId = data.result?.[0]?.message?.chat?.id;
+        if (chatId) {
+          this.config.telegram.chatId = String(chatId);
+          this.status.lastChatId = String(chatId);
+          try {
+            saveConfig(this.config);
+            console.log(`Default chatId recovered from recent updates: ${chatId}`);
+          } catch (err) {
+            console.warn("Failed to save recovered chatId:", err);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not recover chatId from updates:", err);
+      }
+    }
+
     this.bot = new Bot(this.config.telegram.botToken);
 
-    // Handle /mcp command - show MCP info
+    // Handle /mcp command - show connection status
     this.bot.command("mcp", async (ctx) => {
       if (!this.mcpClient) {
-        await ctx.reply("MCP client not connected");
+        await ctx.reply("MCP client not configured.");
         return;
       }
-      try {
-        await this.mcpClient.callTool("mcp_info", {
-          chatId: String(ctx.chat.id),
-        });
-      } catch (err) {
-        console.error("Error calling mcp_info:", err);
-        await ctx.reply("Failed to get MCP info");
-      }
+      const connected = this.mcpClient.isConnected();
+      const { url, tool } = this.mcpClient.getTargetInfo();
+      const status = connected ? "🟢 Connected" : "🔴 Disconnected";
+      await ctx.reply(
+        `*MCP Status*\n\n${status}\n\n*Endpoint:* \`${url}\`\n*Tool:* \`${tool}\``,
+        { parse_mode: "Markdown" }
+      );
     });
 
     // Handle /start command - welcome message
@@ -287,6 +311,14 @@ export class TelegramBot {
     return this.bot;
   }
 
+  getDefaultChatId(): string | undefined {
+    return this.config.telegram.chatId;
+  }
+
+  getLastChatId(): string | undefined {
+    return this.status.lastChatId;
+  }
+
   updateConfig(config: Config): void {
     this.config = config;
   }
@@ -298,7 +330,20 @@ export class TelegramBot {
     }
 
     this.status.lastMessageAt = Date.now();
+    this.status.lastChatId = String(message.chat.id);
 
+    // Auto-save chatId to config on first message so it persists across restarts
+    if (!this.config.telegram.chatId) {
+      this.config.telegram.chatId = String(message.chat.id);
+      try {
+        saveConfig(this.config);
+        console.log(`Default chatId saved to config: ${message.chat.id}`);
+      } catch (err) {
+        console.warn("Failed to auto-save chatId to config:", err);
+      }
+    }
+
+    const baseUrl = (process.env.PUBLIC_URL || process.env.BASE_URL || `http://localhost:${process.env.PORT || 9634}`).replace(/\/$/, "");
     const messageContext: MessageContext = createMessageContext(
       message.text,
       message.chat.id,
@@ -309,7 +354,9 @@ export class TelegramBot {
       message.message_id,
       message.date,
       message.from.is_bot,
-      message.from.language_code
+      message.from.language_code,
+      `${baseUrl}/api/permission`,
+      this.config.telegram.chatId
     );
 
     console.log(`Received message from ${messageContext.username || messageContext.userId}: ${messageContext.text}`);

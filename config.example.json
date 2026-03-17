@@ -1,6 +1,7 @@
 {
   "telegram": {
     "botToken": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
+    "chatId": "",
     "mode": "polling"
   },
   "target": {
@@ -14,6 +15,6 @@
     }
   },
   "server": {
-    "port": 8080
+    "port": 9634
   }
 }

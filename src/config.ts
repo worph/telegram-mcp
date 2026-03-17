@@ -11,7 +11,7 @@ const DEFAULT_CONFIG: Config = {
   },
   target: {
     transport: "sse",
-    url: "http://localhost:8080/mcp/sse",
+    url: "http://localhost:9634/mcp/sse",
     tool: "echo",
     params: {
       message: "{{text}}",
@@ -20,7 +20,7 @@ const DEFAULT_CONFIG: Config = {
     },
   },
   server: {
-    port: 8080,
+    port: 9634,
   },
 };
 

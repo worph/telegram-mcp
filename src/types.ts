@@ -3,6 +3,7 @@ import { z } from "zod";
 // Configuration schema
 export const TelegramConfigSchema = z.object({
   botToken: z.string().regex(/^\d+:[A-Za-z0-9_-]+$/, "Invalid bot token format"),
+  chatId: z.string().optional(),
   mode: z.enum(["polling", "webhook"]).default("polling"),
   webhookUrl: z.string().url().optional(),
 }).refine(
@@ -19,13 +20,13 @@ export const TargetConfigSchema = z.object({
 });
 
 export const ServerConfigSchema = z.object({
-  port: z.number().min(1).max(65535).default(8080),
+  port: z.number().min(1).max(65535).default(9634),
 });
 
 export const ConfigSchema = z.object({
   telegram: TelegramConfigSchema,
   target: TargetConfigSchema,
-  server: ServerConfigSchema.optional().default({ port: 8080 }),
+  server: ServerConfigSchema.optional().default({ port: 9634 }),
 });
 
 // Infer types from schemas
@@ -46,6 +47,24 @@ export interface MessageContext {
   date: number;
   isBot: boolean;
   languageCode: string | undefined;
+  permissionCallbackUrl?: string;
+  defaultChatId?: string;
+}
+
+// Web permission SSE event payload
+export interface WebPermissionRequest {
+  queryId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  description?: string;
+  timeout?: number;
+}
+
+// Browser POST body for resolving a web permission
+export interface WebPermissionResolveBody {
+  queryId: string;
+  decision: "allow" | "deny";
+  csrfToken: string;
 }
 
 // Bot status
@@ -54,17 +73,18 @@ export interface BotStatus {
   botUsername?: string;
   error?: string;
   lastMessageAt?: number;
+  lastChatId?: string;
 }
 
 // MCP tool definitions
 export interface SendMessageParams {
-  chatId: string;
+  chatId?: string;
   text: string;
   parseMode?: "Markdown" | "HTML";
 }
 
 export interface SendPhotoParams {
-  chatId: string;
+  chatId?: string;
   url: string;
   caption?: string;
 }

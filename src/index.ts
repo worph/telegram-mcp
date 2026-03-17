@@ -3,7 +3,7 @@ import { TelegramBot } from "./bot";
 import { loadConfig } from "./config";
 import { MCPClient } from "./mcp-client";
 import { MCPServer } from "./mcp-server";
-import { PermissionService } from "./permission-service";
+import { PermissionService, WebPermissionService } from "./permission-service";
 
 async function main(): Promise<void> {
   console.log("Starting Telegram MCP...");
@@ -15,6 +15,7 @@ async function main(): Promise<void> {
   const mcpClient = new MCPClient(config.target);
   const mcpServer = new MCPServer(bot);
   const permissionService = new PermissionService();
+  const webPermissionService = new WebPermissionService();
 
   // Wire up dependencies
   bot.setMCPClient(mcpClient);
@@ -30,10 +31,11 @@ async function main(): Promise<void> {
     bot.updateConfig(config);
     mcpClient.updateConfig(config.target);
 
+    let botError: unknown = null;
     try {
       await bot.start();
     } catch (err) {
-      console.warn("Bot failed to start:", err instanceof Error ? err.message : err);
+      botError = err;
     }
     try {
       await mcpClient.connect();
@@ -41,6 +43,7 @@ async function main(): Promise<void> {
       console.warn("MCP client connection failed (will retry on message):", err);
     }
     console.log("Restart complete");
+    if (botError) throw botError;
   };
 
   const app = createApi({
@@ -48,10 +51,11 @@ async function main(): Promise<void> {
     mcpClient,
     mcpServer,
     permissionService,
+    webPermissionService,
     onRestart: restart,
   });
 
-  const port = config.server?.port || 8080;
+  const port = config.server?.port || 9634;
   const server = app.listen(port, () => {
     console.log(`Web UI available at http://localhost:${port}`);
     console.log(`MCP Server available at http://localhost:${port}/mcp/sse`);

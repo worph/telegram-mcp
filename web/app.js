@@ -1,7 +1,9 @@
 // State
 let currentConfig = null;
+let currentStatus = null;
 let botRunning = false;
 let mcpEditVisible = false;
+let csrfToken = null;
 
 // DOM elements
 const telegramSetup = document.getElementById('telegram-setup');
@@ -13,7 +15,6 @@ const mcpStatusText = document.getElementById('mcp-status-text');
 const mcpSetup = document.getElementById('mcp-setup');
 const mcpConfig = document.getElementById('mcp-config');
 const mcpEditForm = document.getElementById('mcp-edit-form');
-const mcpTestActions = document.getElementById('mcp-test-actions');
 const botUsername = document.getElementById('bot-username');
 const flowToolName = document.getElementById('flow-tool-name');
 const mcpToolDisplay = document.getElementById('mcp-tool-display');
@@ -35,6 +36,7 @@ function showToast(message, type = 'success') {
 
 // Update UI based on bot status
 function updateUI(status) {
+  currentStatus = status;
   botRunning = status.bot.running;
 
   if (botRunning) {
@@ -44,6 +46,13 @@ function updateUI(status) {
     telegramStatus.className = 'status-badge success';
     telegramStatusText.textContent = 'Connected';
     botUsername.textContent = '@' + (status.bot.botUsername || 'bot');
+    const chatIdEl = document.getElementById('bot-chat-id');
+    const chatId = status.bot.defaultChatId || status.bot.lastChatId;
+    if (chatId) {
+      chatIdEl.textContent = 'Chat ID: ' + chatId;
+    } else {
+      chatIdEl.textContent = 'Chat ID: send a message to the bot to auto-detect';
+    }
   } else {
     // Bot not running - show setup wizard
     telegramSetup.classList.remove('hidden');
@@ -64,6 +73,8 @@ function updateUI(status) {
     mcpStatus.className = 'status-badge warning';
     mcpStatusText.textContent = 'Disconnected';
   }
+
+  updateSendMcpInfoButton();
 }
 
 // Load config from server
@@ -79,6 +90,7 @@ async function loadConfig() {
 
     // Populate running form
     document.getElementById('botTokenEdit').value = currentConfig.telegram.botToken;
+    document.getElementById('defaultChatId').value = currentConfig.telegram.chatId || '';
     document.getElementById('mode').value = currentConfig.telegram.mode || 'polling';
     // Auto-fill webhook URL from PUBLIC_URL env if not already set
     let webhookUrlValue = currentConfig.telegram.webhookUrl || '';
@@ -141,7 +153,7 @@ async function connectBot() {
       },
       target: currentConfig?.target || {
         transport: 'sse',
-        url: 'http://localhost:8080/mcp/sse',
+        url: 'http://localhost:9634/mcp/sse',
         tool: 'echo',
         params: {
           message: '{{text}}',
@@ -149,7 +161,7 @@ async function connectBot() {
           username: '{{username}}',
         },
       },
-      server: { port: 8080 },
+      server: { port: 9634 },
     };
 
     const saveResponse = await fetch('/api/config', {
@@ -183,17 +195,21 @@ async function connectBot() {
 async function saveTelegram() {
   try {
     const mode = document.getElementById('mode').value;
+    const chatId = document.getElementById('defaultChatId').value.trim();
     const telegram = {
       botToken: document.getElementById('botTokenEdit').value,
       mode: mode,
     };
+    if (chatId) {
+      telegram.chatId = chatId;
+    }
     if (mode === 'webhook') {
       telegram.webhookUrl = document.getElementById('webhookUrl').value.trim();
     }
     const config = {
       telegram: telegram,
       target: currentConfig.target,
-      server: { port: 8080 },
+      server: { port: 9634 },
     };
 
     const response = await fetch('/api/config', {
@@ -241,7 +257,7 @@ async function saveMCP() {
     const config = {
       telegram: currentConfig.telegram,
       target: target,
-      server: { port: 8080 },
+      server: { port: 9634 },
     };
 
     const response = await fetch('/api/config', {
@@ -261,7 +277,6 @@ async function saveMCP() {
     // Close edit form
     mcpEditVisible = false;
     mcpEditForm.classList.add('hidden');
-    mcpTestActions.classList.remove('hidden');
     editBtnText.textContent = 'Edit Configuration';
 
     await loadConfig();
@@ -299,11 +314,9 @@ function toggleMCPEdit() {
 
   if (mcpEditVisible) {
     mcpEditForm.classList.remove('hidden');
-    mcpTestActions.classList.add('hidden');
     editBtnText.textContent = 'Cancel Editing';
   } else {
     mcpEditForm.classList.add('hidden');
-    mcpTestActions.classList.remove('hidden');
     editBtnText.textContent = 'Edit Configuration';
   }
 }
@@ -312,7 +325,7 @@ function toggleMCPEdit() {
 const PRESETS = {
   echo: {
     transport: 'sse',
-    url: 'http://localhost:8080/mcp/sse',
+    url: 'http://localhost:9634/mcp/sse',
     authToken: '',
     tool: 'echo',
     params: {
@@ -323,13 +336,13 @@ const PRESETS = {
   },
   query_claude: {
     transport: 'http',
-    url: 'http://claude-code-app-dev:8080/mcp',
+    url: 'http://claude:8080/mcp',
     authToken: '',
     tool: 'query_claude',
     params: {
       prompt: '{{text}}',
       chatId: '{{chatId}}',
-      permissionCallbackUrl: 'http://telegram-mcp:8080/api/permission',
+      permissionCallbackUrl: '{{permissionCallbackUrl}}',
     },
   },
 };
@@ -370,15 +383,6 @@ function updateMCPDisplay() {
   }
 }
 
-// Test echo
-async function testEcho() {
-  if (!botRunning) {
-    showToast('Connect your Telegram bot first', 'error');
-    return;
-  }
-  showToast('Send a message to your bot on Telegram to test the echo!');
-}
-
 // Toggle webhook URL field visibility
 function toggleWebhookUrl() {
   const mode = document.getElementById('mode').value;
@@ -390,7 +394,13 @@ function toggleWebhookUrl() {
   }
 }
 
-// Toggle about card
+// Generic card toggle — header passes itself and the body id
+function toggleCard(bodyId, header) {
+  document.getElementById(bodyId).classList.toggle('hidden');
+  header.classList.toggle('collapsed');
+}
+
+// Toggle about card (kept for backward compat with inline onclick)
 function toggleAbout() {
   const content = document.getElementById('about-content');
   const header = document.querySelector('#about-card .card-header');
@@ -398,10 +408,197 @@ function toggleAbout() {
   header.classList.toggle('collapsed');
 }
 
+// Send MCP server info through the configured MCP target
+async function sendMcpInfo() {
+  const btn = document.getElementById('send-mcp-info-btn');
+  const responseBox = document.getElementById('mcp-target-response');
+  const responseText = document.getElementById('mcp-target-response-text');
+
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  responseBox.classList.add('hidden');
+
+  try {
+    const response = await fetch('/api/send-mcp-info', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to send');
+
+    if (result.response) {
+      responseText.textContent = result.response;
+      responseBox.classList.remove('hidden');
+    } else {
+      showToast('Sent — no response from target');
+    }
+  } catch (error) {
+    showToast('Failed to send: ' + error.message, 'error');
+  } finally {
+    btn.textContent = 'Send Config via MCP Target';
+    updateSendMcpInfoButton();
+  }
+}
+
+// Update the send button state based on MCP connection and last chat
+function updateSendMcpInfoButton() {
+  const btn = document.getElementById('send-mcp-info-btn');
+  const hint = document.getElementById('send-mcp-info-hint');
+  if (!btn) return;
+
+  const mcpConnected = currentStatus?.mcpClient?.connected;
+
+  if (!mcpConnected) {
+    btn.disabled = true;
+    hint.textContent = 'MCP target not connected — configure and connect it above first.';
+  } else {
+    btn.disabled = false;
+    hint.textContent = '';
+  }
+}
+
+// Load MCP server info
+async function loadMcpServerInfo() {
+  try {
+    const response = await fetch('/api/mcp-server-info');
+    if (!response.ok) return;
+    const info = await response.json();
+
+    document.getElementById('mcp-sse-url').textContent = info.sseUrl;
+    document.getElementById('mcp-http-url').textContent = info.httpUrl;
+    document.getElementById('mcp-claude-config').textContent = JSON.stringify(info.claudeConfig, null, 2);
+  } catch (e) {
+    console.error('Failed to load MCP server info:', e);
+  }
+}
+
+// Copy text from an element by id
+function copyText(elementId, btn) {
+  const text = document.getElementById(elementId).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copy';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+
+// Copy a code block
+function copyBlock(elementId, btn) {
+  const text = document.getElementById(elementId).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Copy';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+
+// Escape HTML for safe display
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Connect to the SSE permission stream
+function connectPermissionStream() {
+  const es = new EventSource('/api/permission/stream');
+
+  es.addEventListener('csrf', (e) => {
+    const data = JSON.parse(e.data);
+    csrfToken = data.token;
+    console.log('Permission stream connected');
+  });
+
+  es.addEventListener('permission', (e) => {
+    const req = JSON.parse(e.data);
+    showPermissionDialog(req);
+  });
+
+  es.addEventListener('ping', () => {
+    // keep-alive, nothing to do
+  });
+
+  es.onerror = () => {
+    csrfToken = null;
+    // EventSource auto-reconnects; reset token on next csrf event
+  };
+}
+
+// Show modal permission dialog
+function showPermissionDialog(req) {
+  // Remove any existing overlay
+  const existing = document.getElementById('permission-overlay');
+  if (existing) existing.remove();
+
+  const inputStr = JSON.stringify(req.toolInput, null, 2);
+  const timeoutSec = req.timeout || 60;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'permission-overlay';
+  overlay.innerHTML = `
+    <div class="permission-dialog">
+      <div class="permission-title">Permission Required</div>
+      <div class="permission-tool">Tool: <code>${escapeHtml(req.toolName)}</code></div>
+      ${req.description ? `<div class="permission-desc">${escapeHtml(req.description)}</div>` : ''}
+      <div class="permission-label">Input:</div>
+      <pre class="permission-input">${escapeHtml(inputStr)}</pre>
+      <div class="permission-timer" id="perm-timer">Expires in ${timeoutSec}s</div>
+      <div class="permission-actions">
+        <button class="btn-primary" onclick="resolveWebPermission('${escapeHtml(req.queryId)}', 'allow')">Allow</button>
+        <button class="btn-secondary" onclick="resolveWebPermission('${escapeHtml(req.queryId)}', 'deny')">Deny</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Countdown timer
+  let remaining = timeoutSec;
+  const timerEl = document.getElementById('perm-timer');
+  const timerId = setInterval(() => {
+    remaining--;
+    if (timerEl) timerEl.textContent = `Expires in ${remaining}s`;
+    if (remaining <= 0) {
+      clearInterval(timerId);
+      overlay.remove();
+    }
+  }, 1000);
+  overlay._timerId = timerId;
+}
+
+// Resolve a web permission prompt
+async function resolveWebPermission(queryId, decision) {
+  const overlay = document.getElementById('permission-overlay');
+  if (overlay) {
+    clearInterval(overlay._timerId);
+    overlay.remove();
+  }
+
+  try {
+    const response = await fetch('/api/permission/web/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ queryId, decision, csrfToken }),
+    });
+    if (!response.ok) {
+      const result = await response.json();
+      console.error('Failed to resolve permission:', result.error);
+    }
+  } catch (err) {
+    console.error('Failed to resolve permission:', err);
+  }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   loadConfig();
   updateStatus();
+  loadMcpServerInfo();
+  connectPermissionStream();
 
   // Poll status every 3 seconds
   setInterval(updateStatus, 3000);

@@ -1,9 +1,12 @@
+import crypto from "crypto";
+import { Response } from "express";
 import { InlineKeyboard } from "grammy";
 import { TelegramBot } from "./bot";
 import {
   PendingPermission,
   PermissionRequest,
   PermissionResponse,
+  WebPermissionRequest,
 } from "./types";
 
 const DEFAULT_PERMISSION_TIMEOUT = 120; // seconds
@@ -29,7 +32,7 @@ export class PermissionService {
 
     // Auto-allow if tool is in the allowlist
     if (this.allowedTools.has(req.toolName)) {
-      console.log(`Auto-allowing ${req.toolName} (in allowlist)`);
+      console.log(`[permission:telegram] Auto-allowed tool=${req.toolName} queryId=${req.queryId} chatId=${req.chatId} (in allowlist)`);
       return {
         queryId: req.queryId,
         decision: "allow",
@@ -110,8 +113,10 @@ export class PermissionService {
     // If "always", add to allowlist
     if (decision === "always") {
       this.allowedTools.add(pending.toolName);
-      console.log(`Added ${pending.toolName} to allowlist (now: ${[...this.allowedTools].join(", ")})`);
+      console.log(`[permission:telegram] Always-allow added: tool=${pending.toolName} allowlist=[${[...this.allowedTools].join(", ")}]`);
     }
+
+    console.log(`[permission:telegram] Resolved: queryId=${queryId} tool=${pending.toolName} chatId=${pending.chatId} decision=${decision}`);
 
     // Resolve the promise (always/allow both grant permission)
     pending.resolve({
@@ -129,7 +134,7 @@ export class PermissionService {
   revokeAllowedTools(): string[] {
     const tools = [...this.allowedTools];
     this.allowedTools.clear();
-    console.log("Cleared tool allowlist");
+    console.log(`[permission:telegram] Allowlist revoked: tools=[${tools.join(", ")}]`);
     return tools;
   }
 
@@ -145,6 +150,8 @@ export class PermissionService {
 
     // Remove from pending
     this.pending.delete(queryId);
+
+    console.log(`[permission:telegram] Timed out: queryId=${queryId} tool=${pending.toolName} chatId=${pending.chatId}`);
 
     // Resolve with timeout/deny
     pending.resolve({
@@ -199,5 +206,139 @@ export class PermissionService {
   // Check if a permission is pending
   hasPending(queryId: string): boolean {
     return this.pending.has(queryId);
+  }
+}
+
+const WEB_PERMISSION_TIMEOUT = 60; // seconds
+
+interface PendingWebPermission {
+  resolve: (response: PermissionResponse) => void;
+  timeoutId: NodeJS.Timeout;
+}
+
+export class WebPermissionService {
+  private sseClient: Response | null = null;
+  private csrfToken: string | null = null;
+  private pingInterval: NodeJS.Timeout | null = null;
+  private pending: Map<string, PendingWebPermission> = new Map();
+
+  connectClient(res: Response): void {
+    // Deny any pending from previous client
+    if (this.sseClient) {
+      console.log(`[permission:web] Previous SSE client replaced — denying ${this.pending.size} pending request(s)`);
+      this.denyAllPending("Browser reconnected — previous session terminated");
+    }
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+
+    this.sseClient = res;
+    this.csrfToken = crypto.randomBytes(32).toString("hex");
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    // Send CSRF token as first event
+    this.sendEvent(res, "csrf", { token: this.csrfToken });
+
+    // Keep-alive ping every 25s
+    this.pingInterval = setInterval(() => {
+      if (this.sseClient === res) {
+        this.sendEvent(res, "ping", {});
+      }
+    }, 25_000);
+
+    // On disconnect, deny all pending
+    res.on("close", () => {
+      if (this.sseClient === res) {
+        this.sseClient = null;
+        this.csrfToken = null;
+        if (this.pingInterval) {
+          clearInterval(this.pingInterval);
+          this.pingInterval = null;
+        }
+        this.denyAllPending("Browser disconnected");
+      }
+    });
+  }
+
+  async requestPermission(req: WebPermissionRequest): Promise<PermissionResponse> {
+    if (!this.sseClient) {
+      console.log(`[permission:web] No SSE client connected — auto-denying: queryId=${req.queryId} tool=${req.toolName}`);
+      return { queryId: req.queryId, decision: "deny", timedOut: true };
+    }
+    console.log(`[permission:web] Sending prompt to browser: queryId=${req.queryId} tool=${req.toolName} timeout=${req.timeout || WEB_PERMISSION_TIMEOUT}s input=${JSON.stringify(req.toolInput)}`);
+
+    const timeout = (req.timeout || WEB_PERMISSION_TIMEOUT) * 1000;
+
+    const event: WebPermissionRequest = {
+      queryId: req.queryId,
+      toolName: req.toolName,
+      toolInput: req.toolInput,
+      description: req.description,
+      timeout: req.timeout || WEB_PERMISSION_TIMEOUT,
+    };
+    this.sendEvent(this.sseClient, "permission", event);
+
+    return new Promise<PermissionResponse>((resolve) => {
+      const timeoutId = setTimeout(() => {
+        if (this.pending.has(req.queryId)) {
+          this.pending.delete(req.queryId);
+          console.log(`[permission:web] Timed out: queryId=${req.queryId} tool=${req.toolName}`);
+          resolve({ queryId: req.queryId, decision: "deny", timedOut: true });
+        }
+      }, timeout);
+
+      this.pending.set(req.queryId, { resolve, timeoutId });
+    });
+  }
+
+  resolvePermission(queryId: string, decision: "allow" | "deny"): boolean {
+    const pending = this.pending.get(queryId);
+    if (!pending) {
+      console.log(`[permission:web] Resolve failed — no pending request: queryId=${queryId}`);
+      return false;
+    }
+    clearTimeout(pending.timeoutId);
+    this.pending.delete(queryId);
+    console.log(`[permission:web] Resolved: queryId=${queryId} decision=${decision}`);
+    pending.resolve({ queryId, decision, timedOut: false });
+    return true;
+  }
+
+  validateCsrfToken(token: string): boolean {
+    if (!this.csrfToken) return false;
+    try {
+      const a = Buffer.from(token);
+      const b = Buffer.from(this.csrfToken);
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch {
+      return false;
+    }
+  }
+
+  isClientConnected(): boolean {
+    return this.sseClient !== null;
+  }
+
+  private denyAllPending(reason: string): void {
+    console.log(`[permission:web] Denying ${this.pending.size} pending request(s) — ${reason}`);
+    for (const [queryId, pending] of this.pending) {
+      clearTimeout(pending.timeoutId);
+      pending.resolve({ queryId, decision: "deny", timedOut: false });
+    }
+    this.pending.clear();
+  }
+
+  private sendEvent(res: Response, event: string, data: unknown): void {
+    try {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch (err) {
+      console.error("Failed to write SSE event:", err);
+    }
   }
 }

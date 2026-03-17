@@ -6,90 +6,9 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import express, { Request, Response, Router } from "express";
-import * as os from "os";
 import { TelegramBot } from "./bot";
 import { SendMessageParams, SendPhotoParams } from "./types";
-
-function getMcpInfo(): string {
-  const baseUrl = process.env.BASE_URL || "http://localhost:8080";
-  const hostname = os.hostname();
-  const port = process.env.PORT || "8080";
-
-  const info = `
-🔌 *MCP Server Installation Info*
-
-*Server Name:* telegram-mcp
-*Version:* 1.0.0
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-📡 *Connection Endpoints*
-
-*HTTP/SSE (recommended):*
-\`${baseUrl}/mcp/sse\`
-
-*Docker Network:*
-\`http://${hostname}:${port}/mcp/sse\`
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-⚙️ *Supported Transports*
-• SSE (Server-Sent Events) ✅
-• HTTP ✅
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-🛠️ *Available Tools*
-
-1. \`send_message\` - Send text message
-   • chatId (required): Target chat ID
-   • text (required): Message content
-   • parseMode: "Markdown" or "HTML"
-
-2. \`send_photo\` - Send photo
-   • chatId (required): Target chat ID
-   • url (required): Photo URL
-   • caption: Optional caption
-
-3. \`echo\` - Echo message back (testing)
-   • chatId (required): Target chat ID
-   • message (required): Text to echo
-   • username: Optional username
-
-4. \`mcp_info\` - Show this info
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-📋 *Example MCP Client Config*
-
-\`\`\`json
-{
-  "mcpServers": {
-    "telegram": {
-      "transport": "sse",
-      "url": "${baseUrl}/mcp/sse"
-    }
-  }
-}
-\`\`\`
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-🐳 *Docker Compose*
-
-\`\`\`yaml
-services:
-  telegram-mcp:
-    image: telegram-mcp
-    ports:
-      - "8080:8080"
-    environment:
-      - BASE_URL=http://your-domain.com:8080
-\`\`\`
-`.trim();
-
-  return info;
-}
+import { getMcpInfo } from "./mcp-info";
 
 export class MCPServer {
   private bot: TelegramBot;
@@ -97,6 +16,15 @@ export class MCPServer {
 
   constructor(bot: TelegramBot) {
     this.bot = bot;
+  }
+
+  private resolveChatId(providedChatId?: string): string {
+    if (providedChatId) return providedChatId;
+    const defaultChatId = this.bot.getDefaultChatId();
+    if (defaultChatId) return defaultChatId;
+    const lastChatId = this.bot.getLastChatId();
+    if (lastChatId) return lastChatId;
+    throw new Error("Missing chatId: provide it in the tool call or set a default in telegram config");
   }
 
   private createServer(): Server {
@@ -122,13 +50,13 @@ export class MCPServer {
         tools: [
           {
             name: "send_message",
-            description: "Send a text message to a Telegram chat",
+            description: "Send a text message to a Telegram chat. If chatId is omitted, the message is sent to the configured default or the last active chat.",
             inputSchema: {
               type: "object" as const,
               properties: {
                 chatId: {
                   type: "string",
-                  description: "The chat ID to send the message to",
+                  description: "The chat ID to send the message to (optional if default chatId is configured)",
                 },
                 text: {
                   type: "string",
@@ -140,18 +68,18 @@ export class MCPServer {
                   description: "Optional parse mode for formatting",
                 },
               },
-              required: ["chatId", "text"],
+              required: ["text"],
             },
           },
           {
             name: "send_photo",
-            description: "Send a photo to a Telegram chat",
+            description: "Send a photo to a Telegram chat. If chatId is omitted, the photo is sent to the configured default or the last active chat.",
             inputSchema: {
               type: "object" as const,
               properties: {
                 chatId: {
                   type: "string",
-                  description: "The chat ID to send the photo to",
+                  description: "The chat ID to send the photo to (optional if default chatId is configured)",
                 },
                 url: {
                   type: "string",
@@ -162,43 +90,35 @@ export class MCPServer {
                   description: "Optional caption for the photo",
                 },
               },
-              required: ["chatId", "url"],
+              required: ["url"],
             },
           },
           {
             name: "echo",
-            description: "Echo a message back to the Telegram chat (useful for testing)",
+            description: "Echo a message back — useful for testing the MCP connection",
             inputSchema: {
               type: "object" as const,
               properties: {
-                chatId: {
-                  type: "string",
-                  description: "The chat ID to echo the message to",
-                },
                 message: {
                   type: "string",
                   description: "The message to echo back",
                 },
-                username: {
-                  type: "string",
-                  description: "Optional username of the sender",
-                },
               },
-              required: ["chatId", "message"],
+              required: ["message"],
             },
           },
           {
             name: "mcp_info",
-            description: "Send MCP server installation and connection information to a Telegram chat",
+            description: "Send MCP server installation and connection information to a Telegram chat. If chatId is omitted, sends to the configured default or the last active chat.",
             inputSchema: {
               type: "object" as const,
               properties: {
                 chatId: {
                   type: "string",
-                  description: "The chat ID to send the info to",
+                  description: "The chat ID to send the info to (optional if default chatId is configured)",
                 },
               },
-              required: ["chatId"],
+              required: [],
             },
           },
         ],
@@ -212,15 +132,16 @@ export class MCPServer {
         switch (name) {
           case "send_message": {
             const params = args as unknown as SendMessageParams;
-            if (!params.chatId || !params.text) {
-              throw new Error("Missing required parameters: chatId and text");
+            if (!params.text) {
+              throw new Error("Missing required parameter: text");
             }
-            await this.bot.sendMessage(params.chatId, params.text, params.parseMode);
+            const chatId = this.resolveChatId(params.chatId);
+            await this.bot.sendMessage(chatId, params.text, params.parseMode);
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `Message sent to chat ${params.chatId}`,
+                  text: `Message sent to chat ${chatId}`,
                 },
               ],
             };
@@ -228,50 +149,39 @@ export class MCPServer {
 
           case "send_photo": {
             const params = args as unknown as SendPhotoParams;
-            if (!params.chatId || !params.url) {
-              throw new Error("Missing required parameters: chatId and url");
+            if (!params.url) {
+              throw new Error("Missing required parameter: url");
             }
-            await this.bot.sendPhoto(params.chatId, params.url, params.caption);
+            const chatId = this.resolveChatId(params.chatId);
+            await this.bot.sendPhoto(chatId, params.url, params.caption);
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `Photo sent to chat ${params.chatId}`,
+                  text: `Photo sent to chat ${chatId}`,
                 },
               ],
             };
           }
 
           case "echo": {
-            const params = args as unknown as { chatId: string; message: string; username?: string };
-            if (!params.chatId || !params.message) {
-              throw new Error("Missing required parameters: chatId and message");
-            }
-            const prefix = params.username ? `@${params.username}: ` : "";
-            const echoText = `🔄 Echo: ${prefix}${params.message}`;
-            await this.bot.sendMessage(params.chatId, echoText);
+            const { message } = args as { message: string };
+            if (!message) throw new Error("Missing required parameter: message");
             return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `Echoed message to chat ${params.chatId}`,
-                },
-              ],
+              content: [{ type: "text" as const, text: message }],
             };
           }
 
           case "mcp_info": {
-            const params = args as unknown as { chatId: string };
-            if (!params.chatId) {
-              throw new Error("Missing required parameter: chatId");
-            }
+            const params = args as unknown as { chatId?: string };
+            const chatId = this.resolveChatId(params.chatId);
             const info = getMcpInfo();
-            await this.bot.sendMessage(params.chatId, info, "Markdown");
+            await this.bot.sendMessage(chatId, info, "Markdown");
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `MCP info sent to chat ${params.chatId}`,
+                  text: `MCP info sent to chat ${chatId}`,
                 },
               ],
             };

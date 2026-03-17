@@ -369,6 +369,176 @@
     .hidden {
       display: none !important;
     }
+
+    /* MCP server info card */
+    .endpoint-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 10px;
+    }
+    .endpoint-row .endpoint-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6c757d;
+      min-width: 40px;
+    }
+    .endpoint-row .endpoint-url {
+      flex: 1;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      font-size: 12px;
+      color: #0088cc;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .btn-copy {
+      background: none;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #6c757d;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .btn-copy:hover {
+      border-color: #0088cc;
+      color: #0088cc;
+      background: #f0f9ff;
+    }
+    .btn-copy.copied {
+      border-color: #28a745;
+      color: #28a745;
+    }
+    .tool-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+    .tool-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    .tool-name {
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: #495057;
+      min-width: 110px;
+    }
+    .tool-desc {
+      font-size: 13px;
+      color: #6c757d;
+    }
+    .config-block {
+      position: relative;
+      background: #1e1e2e;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 4px;
+    }
+    .config-block pre {
+      margin: 0;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      font-size: 12px;
+      color: #cdd6f4;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .config-block .btn-copy-block {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #cdd6f4;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .config-block .btn-copy-block:hover {
+      background: rgba(255,255,255,0.2);
+    }
+    .config-block .btn-copy-block.copied {
+      color: #a6e3a1;
+      border-color: #a6e3a1;
+    }
+
+    /* Permission dialog overlay */
+    #permission-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+    .permission-dialog {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 480px;
+      width: calc(100% - 40px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .permission-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: #212529;
+    }
+    .permission-tool {
+      font-size: 14px;
+      margin-bottom: 8px;
+      color: #495057;
+    }
+    .permission-desc {
+      font-size: 13px;
+      color: #6c757d;
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+    .permission-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6c757d;
+      margin-bottom: 6px;
+    }
+    .permission-input {
+      background: #1e1e2e;
+      color: #cdd6f4;
+      font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      font-size: 12px;
+      border-radius: 8px;
+      padding: 12px;
+      overflow-x: auto;
+      max-height: 200px;
+      overflow-y: auto;
+      margin: 0 0 12px;
+      white-space: pre;
+    }
+    .permission-timer {
+      font-size: 12px;
+      color: #adb5bd;
+      margin-bottom: 16px;
+    }
+    .permission-actions {
+      display: flex;
+      gap: 8px;
+    }
   </style>
 </head>
 <body>
@@ -408,7 +578,7 @@
 
   <!-- Telegram Section -->
   <div class="card" id="telegram-card">
-    <div class="card-header">
+    <div class="card-header collapsible collapsed" onclick="toggleCard('telegram-body', this)">
       <h2>Telegram Bot</h2>
       <span class="status-badge error" id="telegram-status">
         <span class="status-dot"></span>
@@ -417,6 +587,7 @@
     </div>
 
     <!-- Setup Wizard (shown when bot not running) -->
+    <div id="telegram-body" class="hidden">
     <div id="telegram-setup" class="setup-wizard">
       <div class="icon">🤖</div>
       <h3>Connect your Telegram Bot</h3>
@@ -447,12 +618,17 @@
         <div class="details">
           <div class="bot-name" id="bot-username">@bot</div>
           <div class="bot-status">Running and receiving messages</div>
+          <div class="bot-chat-id" id="bot-chat-id" style="font-size: 12px; color: #6c757d; margin-top: 2px;"></div>
         </div>
       </div>
 
       <div>
         <label for="botTokenEdit">Bot Token</label>
         <input type="password" id="botTokenEdit" placeholder="123456789:ABCdef...">
+
+        <label for="defaultChatId">Default Chat ID</label>
+        <input type="text" id="defaultChatId" placeholder="e.g. 123456789">
+        <p class="hint">Optional. Used as fallback when MCP tools are called without a chatId.</p>
 
         <label for="mode">Mode</label>
         <select id="mode" onchange="toggleWebhookUrl()">
@@ -472,17 +648,24 @@
         <button class="btn-secondary" onclick="restartBot()">Restart Bot</button>
       </div>
     </div>
+    </div><!-- end telegram-body -->
   </div>
 
   <!-- MCP Section -->
   <div class="card" id="mcp-card">
-    <div class="card-header">
+    <div class="card-header collapsible collapsed" onclick="toggleCard('mcp-body', this)">
       <h2>MCP Target</h2>
       <span class="status-badge warning" id="mcp-status">
         <span class="status-dot"></span>
         <span id="mcp-status-text">Disconnected</span>
       </span>
     </div>
+
+    <div id="mcp-body" class="hidden">
+    <p style="color: #555; font-size: 14px; line-height: 1.6; margin: 0 0 16px;">
+      This is the <em>egress</em> direction — when you send a message to the bot, it gets forwarded as a tool call
+      to the MCP server configured here. The server processes it and the response is sent back to you as a reply.
+    </p>
 
     <!-- Setup prompt (hidden - MCP config always visible) -->
     <div id="mcp-setup" class="setup-wizard hidden">
@@ -519,7 +702,7 @@
         </div>
         <div class="mcp-info-row">
           <span class="mcp-info-label">Endpoint</span>
-          <span class="mcp-info-value mcp-info-url" id="mcp-url-display">http://localhost:8080/mcp/sse</span>
+          <span class="mcp-info-value mcp-info-url" id="mcp-url-display">http://localhost:9634/mcp/sse</span>
         </div>
       </div>
 
@@ -535,7 +718,7 @@
           <select id="preset" onchange="applyPreset()">
             <option value="">Custom</option>
             <option value="echo">Echo (built-in test)</option>
-            <option value="query_claude">Claude Code Container</option>
+            <option value="query_claude">Claude Code App</option>
           </select>
           <p class="hint">Select a preset to auto-fill the fields below, or choose Custom</p>
 
@@ -546,8 +729,8 @@
           </select>
 
           <label for="targetUrl">MCP Server URL</label>
-          <input type="url" id="targetUrl" placeholder="http://localhost:8080/mcp/sse">
-          <p class="hint">Use <code>http://localhost:8080/mcp/sse</code> for the built-in echo server</p>
+          <input type="url" id="targetUrl" placeholder="http://localhost:9634/mcp/sse">
+          <p class="hint">Use <code>http://localhost:9634/mcp/sse</code> for the built-in echo server</p>
 
           <label for="authToken">Auth Token</label>
           <input type="password" id="authToken" placeholder="Optional bearer token">
@@ -567,11 +750,71 @@
         </div>
       </div>
 
-      <!-- Test button (always visible) -->
-      <div class="card-actions" id="mcp-test-actions">
-        <button class="btn-secondary" onclick="testEcho()">
-          <span>🧪</span> Test Echo
+    </div>
+    </div><!-- end mcp-body -->
+  </div>
+
+  <!-- MCP Server Info Card -->
+  <div class="card" id="mcp-server-card">
+    <div class="card-header collapsible collapsed" onclick="toggleCard('mcp-server-content', this)">
+      <h2>MCP Server</h2>
+    </div>
+    <div id="mcp-server-content" class="hidden">
+      <p style="color: #555; font-size: 14px; line-height: 1.6; margin: 0 0 16px;">
+        Connect any LLM (e.g. Claude) to this server so it can send messages directly to your Telegram chat.
+        This is the <em>ingress</em> direction — the LLM calls <code>send_message</code> and your bot delivers it.
+      </p>
+
+      <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">Endpoints</div>
+      <div id="mcp-server-endpoints">
+        <div class="endpoint-row">
+          <span class="endpoint-label">SSE</span>
+          <span class="endpoint-url" id="mcp-sse-url">loading…</span>
+          <button class="btn-copy" onclick="copyText('mcp-sse-url', this)">Copy</button>
+        </div>
+        <div class="endpoint-row">
+          <span class="endpoint-label">HTTP</span>
+          <span class="endpoint-url" id="mcp-http-url">loading…</span>
+          <button class="btn-copy" onclick="copyText('mcp-http-url', this)">Copy</button>
+        </div>
+      </div>
+
+      <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px; margin-top: 16px;">Available Tools</div>
+      <div class="tool-list" id="mcp-server-tools">
+        <div class="tool-item">
+          <span class="tool-name">send_message</span>
+          <span class="tool-desc">Send a text message to a Telegram chat</span>
+        </div>
+        <div class="tool-item">
+          <span class="tool-name">send_photo</span>
+          <span class="tool-desc">Send a photo to a Telegram chat</span>
+        </div>
+      </div>
+
+      <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">Claude Desktop Config</div>
+      <div class="config-block">
+        <pre id="mcp-claude-config">{}</pre>
+        <button class="btn-copy-block" onclick="copyBlock('mcp-claude-config', this)">Copy</button>
+      </div>
+      <p style="color: #888; font-size: 12px; margin: 6px 0 0;">
+        Add this to your <code>claude_desktop_config.json</code> under <code>mcpServers</code>.
+      </p>
+
+      <p style="color: #555; font-size: 13px; line-height: 1.6; margin: 16px 0 8px;">
+        Use the button below to forward the MCP endpoint URLs and setup instructions to your LLM via the configured MCP target.
+        This lets the LLM configure itself to call <code>send_message</code> and reach you directly on Telegram.
+      </p>
+
+      <div class="card-actions">
+        <button class="btn-primary" id="send-mcp-info-btn" onclick="sendMcpInfo()" disabled>
+          Send Config via MCP Target
         </button>
+      </div>
+      <p id="send-mcp-info-hint" style="font-size: 12px; color: #888; margin: 6px 0 0;"></p>
+
+      <div id="mcp-target-response" class="hidden" style="margin-top: 12px; background: #f8f9fa; border-radius: 8px; padding: 12px 14px;">
+        <div style="font-size: 12px; font-weight: 600; color: #6c757d; margin-bottom: 6px;">MCP Target Response</div>
+        <pre id="mcp-target-response-text" style="margin: 0; font-family: inherit; font-size: 13px; color: #212529; white-space: pre-wrap; word-break: break-word;"></pre>
       </div>
     </div>
   </div>
