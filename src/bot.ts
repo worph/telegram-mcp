@@ -1,5 +1,6 @@
 import { Bot, Context, webhookCallback } from "grammy";
 import crypto from "crypto";
+import * as os from "os";
 import { RequestHandler } from "express";
 import { BotStatus, Config, MessageContext } from "./types";
 import { createMessageContext, resolveTemplate } from "./template";
@@ -343,7 +344,7 @@ export class TelegramBot {
       }
     }
 
-    const baseUrl = (process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 9634}`).replace(/\/$/, "");
+    const baseUrl = (process.env.PUBLIC_URL || `http://${os.hostname()}:${process.env.PORT || 9634}`).replace(/\/$/, "");
     const messageContext: MessageContext = createMessageContext(
       message.text,
       message.chat.id,

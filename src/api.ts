@@ -1,4 +1,5 @@
 import express, { Request, Response, Router } from "express";
+import * as os from "os";
 import * as path from "path";
 import { TelegramBot } from "./bot";
 import { getMaskedConfig, loadConfig, saveConfig, validateConfig } from "./config";
@@ -125,7 +126,7 @@ function createApiRouter(deps: ApiDependencies): Router {
       return;
     }
 
-    const baseUrl = (process.env.PUBLIC_URL || `http://${req.hostname}:${process.env.PORT || 9634}`).replace(/\/$/, "");
+    const baseUrl = (process.env.PUBLIC_URL || `http://${os.hostname()}:${process.env.PORT || 9634}`).replace(/\/$/, "");
     const claudeConfig = JSON.stringify({ mcpServers: { telegram: { type: "sse", url: `${baseUrl}/mcp/sse` } } }, null, 2);
     const infoText = [
       "A Telegram MCP server is available for you to connect to. Please acknowledge that you have received these connection details and confirm you are ready to use the `send_message` tool to send messages to the user via Telegram.",
@@ -166,7 +167,7 @@ function createApiRouter(deps: ApiDependencies): Router {
   });
 
   router.get("/mcp-server-info", (req: Request, res: Response) => {
-    const baseUrl = (process.env.PUBLIC_URL || `http://${req.hostname}:${process.env.PORT || 9634}`).replace(/\/$/, "");
+    const baseUrl = (process.env.PUBLIC_URL || `http://${os.hostname()}:${process.env.PORT || 9634}`).replace(/\/$/, "");
     res.json({
       sseUrl: `${baseUrl}/mcp/sse`,
       httpUrl: `${baseUrl}/mcp`,
