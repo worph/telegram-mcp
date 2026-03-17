@@ -343,7 +343,7 @@ export class TelegramBot {
       }
     }
 
-    const baseUrl = (process.env.PUBLIC_URL || process.env.BASE_URL || `http://localhost:${process.env.PORT || 9634}`).replace(/\/$/, "");
+    const baseUrl = (process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 9634}`).replace(/\/$/, "");
     const messageContext: MessageContext = createMessageContext(
       message.text,
       message.chat.id,

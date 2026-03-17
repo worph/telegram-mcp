@@ -9,9 +9,7 @@ services:
       - ./data:/app/data:rw
     environment:
       - NODE_ENV=production
-      - BASE_URL=http://telegrammcp:9634
-      # - BASE_URL=http://your-domain.com:8088  # For production
-      # - PUBLIC_URL=https://telegrammcp-holyhorse.nsl.sh  # For webhook mode
+      # - PUBLIC_URL=https://your-domain.com  # External/public URL (for clients outside Docker network)
     restart: unless-stopped
     networks:
       - mcp-network

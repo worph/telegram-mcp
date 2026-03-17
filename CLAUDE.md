@@ -67,7 +67,7 @@ Permissions arrive as plain `POST /api/permission` requests (not MCP tool calls)
 - The text message handler in `bot.ts` is intentionally not awaited — it fires and forgets to prevent grammY's sequential update processing from deadlocking when a permission callback query arrives while the text handler is blocked waiting for MCP.
 - `MCPServer.createRouter()` must be mounted before Express `json()` middleware because MCP transports handle their own body parsing.
 - The `wrapTransport()` function in `mcp-client.ts` silently swallows errors from `notifications/initialized` to handle servers that don't support that notification.
-- Environment variables: `PUBLIC_URL` or `BASE_URL` for external URL resolution, `PORT` for server port override.
+- Environment variables: `PUBLIC_URL` for external URL resolution, `PORT` for server port override.
 
 ### Template Variables
 

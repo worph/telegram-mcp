@@ -1,78 +1,64 @@
 import * as os from "os";
 
 export function getMcpInfo(): string {
-  const baseUrl = process.env.BASE_URL || "http://localhost:9634";
+  const publicUrl = process.env.PUBLIC_URL;
   const hostname = os.hostname();
   const port = process.env.PORT || "9634";
+  const localUrl = `http://${hostname}:${port}`;
+
+  const endpointLines = [];
+  if (publicUrl) {
+    endpointLines.push(`• Public: \`${publicUrl}/mcp/sse\``);
+  }
+  endpointLines.push(`• Docker (local network): \`${localUrl}/mcp/sse\``);
+
+  const configUrl = publicUrl ? `${publicUrl}/mcp/sse` : `${localUrl}/mcp/sse`;
 
   return `
-🔌 *MCP Server Installation Info*
+🔌 *Telegram MCP Server — Connection Info*
 
-*Server Name:* telegram-mcp
-*Version:* 1.0.0
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-📡 *Connection Endpoints*
-
-*HTTP/SSE (recommended):*
-\`${baseUrl}/mcp/sse\`
-
-*Docker Network:*
-\`http://${hostname}:${port}/mcp/sse\`
+*Status:* Connected and ready to use
+*Server:* telegram-mcp v1.0.0
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-⚙️ *Supported Transports*
-• SSE (Server-Sent Events) ✅
-• HTTP ✅
+🛠️ *Your Available Tools*
+
+These tools are already connected to your MCP client. Just call them directly — no additional setup needed.
+
+1. \`send_message\` — Send a text message to Telegram
+   • \`text\` (required): Message content
+   • \`parseMode\`: "Markdown" or "HTML"
+   • \`chatId\` (optional): Defaults to the last active chat
+
+2. \`send_photo\` — Send a photo to Telegram
+   • \`url\` (required): Photo URL
+   • \`caption\`: Optional caption
+   • \`chatId\` (optional): Defaults to the last active chat
+
+3. \`mcp_info\` — Show this info again
+
+_You do not need to specify chatId — the bot automatically routes messages to the correct chat._
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-🛠️ *Available Tools*
+📋 *Setup Reference (for adding to new MCP clients)*
 
-1. \`send_message\` - Send text message
-   • text (required): Message content
-   • parseMode: "Markdown" or "HTML"
-   • chatId (optional): Falls back to last active chat
+*Endpoints:*
+${endpointLines.join("\n")}
 
-2. \`send_photo\` - Send photo
-   • url (required): Photo URL
-   • caption: Optional caption
-   • chatId (optional): Falls back to last active chat
+_Use the Docker URL if your MCP client runs on the same Docker network. Use the Public URL for external access._
 
-3. \`mcp_info\` - Show this info
-   • chatId (optional): Falls back to last active chat
-
-_No chatId needed — the bot routes to the right chat automatically._
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-📋 *Example MCP Client Config*
-
+*Client config example:*
 \`\`\`json
 {
   "mcpServers": {
     "telegram": {
-      "transport": "sse",
-      "url": "${baseUrl}/mcp/sse"
+      "type": "sse",
+      "url": "${configUrl}"
     }
   }
 }
-\`\`\`
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-🐳 *Docker Compose*
-
-\`\`\`yaml
-services:
-  telegram-mcp:
-    image: telegram-mcp
-    ports:
-      - "9634:9634"
-    environment:
-      - BASE_URL=http://your-domain.com:9634
 \`\`\`
 `.trim();
 }
