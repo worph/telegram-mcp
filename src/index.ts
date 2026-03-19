@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   const port = config.server?.port || 9634;
   const server = app.listen(port, () => {
     console.log(`Web UI available at http://localhost:${port}`);
-    console.log(`MCP Server available at http://localhost:${port}/mcp/sse`);
+    console.log(`MCP Server available at http://localhost:${port}/mcp`);
   });
 
   // Start bot (don't crash if token is invalid - user can fix via UI)

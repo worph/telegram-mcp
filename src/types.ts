@@ -12,7 +12,7 @@ export const TelegramConfigSchema = z.object({
 );
 
 export const TargetConfigSchema = z.object({
-  transport: z.enum(["http", "sse"]),
+  transport: z.literal("http"),
   url: z.string().url(),
   tool: z.string().min(1),
   params: z.record(z.any()),

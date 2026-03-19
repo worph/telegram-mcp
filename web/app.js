@@ -152,8 +152,8 @@ async function connectBot() {
         mode: 'polling',
       },
       target: currentConfig?.target || {
-        transport: 'sse',
-        url: 'http://localhost:9634/mcp/sse',
+        transport: 'http',
+        url: 'http://localhost:9634/mcp',
         tool: 'echo',
         params: {
           message: '{{text}}',
@@ -324,8 +324,8 @@ function toggleMCPEdit() {
 // Preset configurations
 const PRESETS = {
   echo: {
-    transport: 'sse',
-    url: 'http://localhost:9634/mcp/sse',
+    transport: 'http',
+    url: 'http://localhost:9634/mcp',
     authToken: '',
     tool: 'echo',
     params: {
@@ -461,7 +461,6 @@ async function loadMcpServerInfo() {
     if (!response.ok) return;
     const info = await response.json();
 
-    document.getElementById('mcp-sse-url').textContent = info.sseUrl;
     document.getElementById('mcp-http-url').textContent = info.httpUrl;
     document.getElementById('mcp-claude-config').textContent = JSON.stringify(info.claudeConfig, null, 2);
   } catch (e) {

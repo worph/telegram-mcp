@@ -8,11 +8,11 @@ export function getMcpInfo(): string {
 
   const endpointLines = [];
   if (publicUrl) {
-    endpointLines.push(`• Public: \`${publicUrl}/mcp/sse\``);
+    endpointLines.push(`• Public: \`${publicUrl}/mcp\``);
   }
-  endpointLines.push(`• Docker (local network): \`${localUrl}/mcp/sse\``);
+  endpointLines.push(`• Docker (local network): \`${localUrl}/mcp\``);
 
-  const configUrl = publicUrl ? `${publicUrl}/mcp/sse` : `${localUrl}/mcp/sse`;
+  const configUrl = publicUrl ? `${publicUrl}/mcp` : `${localUrl}/mcp`;
 
   return `
 🔌 *Telegram MCP Server — Connection Info*
@@ -54,7 +54,7 @@ _Use the Docker URL if your MCP client runs on the same Docker network. Use the 
 {
   "mcpServers": {
     "telegram": {
-      "type": "sse",
+      "type": "http",
       "url": "${configUrl}"
     }
   }

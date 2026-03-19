@@ -10,8 +10,8 @@ const DEFAULT_CONFIG: Config = {
     mode: "polling",
   },
   target: {
-    transport: "sse",
-    url: "http://localhost:9634/mcp/sse",
+    transport: "http",
+    url: "http://localhost:9634/mcp",
     tool: "echo",
     params: {
       message: "{{text}}",

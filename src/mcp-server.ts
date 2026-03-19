@@ -1,5 +1,4 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   CallToolRequestSchema,
@@ -12,7 +11,6 @@ import { getMcpInfo } from "./mcp-info";
 
 export class MCPServer {
   private bot: TelegramBot;
-  private transports: Map<string, SSEServerTransport> = new Map();
 
   constructor(bot: TelegramBot) {
     this.bot = bot;
@@ -226,51 +224,10 @@ export class MCPServer {
       await transport.handleRequest(req, res, req.body);
     });
 
-    // SSE endpoint for MCP
-    router.get("/sse", async (req: Request, res: Response) => {
-      console.log("MCP SSE connection established");
-
-      const transport = new SSEServerTransport("/mcp/messages", res);
-      const sessionId = transport.sessionId;
-      this.transports.set(sessionId, transport);
-
-      console.log(`MCP session created: ${sessionId}`);
-
-      const server = this.createServer();
-
-      res.on("close", () => {
-        console.log(`MCP SSE connection closed: ${sessionId}`);
-        this.transports.delete(sessionId);
-        server.close().catch(console.error);
-      });
-
-      await server.connect(transport);
-    });
-
-    // Messages endpoint for MCP
-    router.post("/messages", async (req: Request, res: Response) => {
-      const sessionId = req.query.sessionId as string;
-      console.log(`MCP message received for session: ${sessionId}`);
-
-      const transport = this.transports.get(sessionId);
-
-      if (!transport) {
-        console.error(`Session not found: ${sessionId}, active sessions: ${Array.from(this.transports.keys()).join(", ")}`);
-        res.status(404).json({ error: "Session not found" });
-        return;
-      }
-
-      await transport.handlePostMessage(req, res);
-    });
-
     return router;
   }
 
   async stop(): Promise<void> {
-    for (const transport of this.transports.values()) {
-      // Close all active transports
-    }
-    this.transports.clear();
     console.log("MCP Server stopped");
   }
 }

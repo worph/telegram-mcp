@@ -1,5 +1,4 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
@@ -60,20 +59,11 @@ export class MCPClient {
         headers["Authorization"] = `Bearer ${this.config.authToken}`;
       }
 
-      let rawTransport: Transport;
-      if (this.config.transport === "http") {
-        rawTransport = new StreamableHTTPClientTransport(url, {
-          requestInit: {
-            headers,
-          },
-        });
-      } else {
-        rawTransport = new SSEClientTransport(url, {
-          requestInit: {
-            headers,
-          },
-        });
-      }
+      const rawTransport: Transport = new StreamableHTTPClientTransport(url, {
+        requestInit: {
+          headers,
+        },
+      });
 
       this.transport = wrapTransport(rawTransport);
 

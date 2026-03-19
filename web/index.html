@@ -702,7 +702,7 @@
         </div>
         <div class="mcp-info-row">
           <span class="mcp-info-label">Endpoint</span>
-          <span class="mcp-info-value mcp-info-url" id="mcp-url-display">http://localhost:9634/mcp/sse</span>
+          <span class="mcp-info-value mcp-info-url" id="mcp-url-display">http://localhost:9634/mcp</span>
         </div>
       </div>
 
@@ -724,13 +724,12 @@
 
           <label for="transport">Transport</label>
           <select id="transport">
-            <option value="sse">SSE</option>
-            <option value="http">HTTP</option>
+            <option value="http">HTTP (Streamable)</option>
           </select>
 
           <label for="targetUrl">MCP Server URL</label>
-          <input type="url" id="targetUrl" placeholder="http://localhost:9634/mcp/sse">
-          <p class="hint">Use <code>http://localhost:9634/mcp/sse</code> for the built-in echo server</p>
+          <input type="url" id="targetUrl" placeholder="http://localhost:9634/mcp">
+          <p class="hint">Use <code>http://localhost:9634/mcp</code> for the built-in echo server</p>
 
           <label for="authToken">Auth Token</label>
           <input type="password" id="authToken" placeholder="Optional bearer token">
@@ -767,11 +766,6 @@
 
       <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">Endpoints</div>
       <div id="mcp-server-endpoints">
-        <div class="endpoint-row">
-          <span class="endpoint-label">SSE</span>
-          <span class="endpoint-url" id="mcp-sse-url">loading…</span>
-          <button class="btn-copy" onclick="copyText('mcp-sse-url', this)">Copy</button>
-        </div>
         <div class="endpoint-row">
           <span class="endpoint-label">HTTP</span>
           <span class="endpoint-url" id="mcp-http-url">loading…</span>

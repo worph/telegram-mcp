@@ -127,12 +127,11 @@ function createApiRouter(deps: ApiDependencies): Router {
     }
 
     const baseUrl = (process.env.PUBLIC_URL || `http://${os.hostname()}:${process.env.PORT || 9634}`).replace(/\/$/, "");
-    const claudeConfig = JSON.stringify({ mcpServers: { telegram: { type: "sse", url: `${baseUrl}/mcp/sse` } } }, null, 2);
+    const claudeConfig = JSON.stringify({ mcpServers: { telegram: { type: "http", url: `${baseUrl}/mcp` } } }, null, 2);
     const infoText = [
       "A Telegram MCP server is available for you to connect to. Please acknowledge that you have received these connection details and confirm you are ready to use the `send_message` tool to send messages to the user via Telegram.",
       "",
       "Connection details:",
-      `- SSE endpoint: ${baseUrl}/mcp/sse`,
       `- HTTP endpoint: ${baseUrl}/mcp`,
       "",
       "Available tools on this MCP server:",
@@ -169,7 +168,6 @@ function createApiRouter(deps: ApiDependencies): Router {
   router.get("/mcp-server-info", (req: Request, res: Response) => {
     const baseUrl = (process.env.PUBLIC_URL || `http://${os.hostname()}:${process.env.PORT || 9634}`).replace(/\/$/, "");
     res.json({
-      sseUrl: `${baseUrl}/mcp/sse`,
       httpUrl: `${baseUrl}/mcp`,
       tools: [
         { name: "send_message", description: "Send a text message to a Telegram chat (chatId optional)", params: ["text", "parseMode?", "chatId?"] },
@@ -178,8 +176,8 @@ function createApiRouter(deps: ApiDependencies): Router {
       claudeConfig: {
         mcpServers: {
           telegram: {
-            type: "sse",
-            url: `${baseUrl}/mcp/sse`,
+            type: "http",
+            url: `${baseUrl}/mcp`,
           },
         },
       },
