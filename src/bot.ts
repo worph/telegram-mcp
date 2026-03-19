@@ -2,11 +2,11 @@ import { Bot, Context, webhookCallback } from "grammy";
 import crypto from "crypto";
 import * as os from "os";
 import { RequestHandler } from "express";
-import { BotStatus, Config, MessageContext } from "./types";
-import { createMessageContext, resolveTemplate } from "./template";
-import { MCPClient } from "./mcp-client";
-import { PermissionService } from "./permission-service";
-import { saveConfig } from "./config";
+import { BotStatus, Config, MessageContext } from "./types.js";
+import { createMessageContext, resolveTemplate } from "./template.js";
+import { MCPClient } from "./mcp-client.js";
+import { PermissionService } from "./permission-service.js";
+import { saveConfig } from "./config.js";
 
 // Characters that must be escaped in MarkdownV2 outside of code blocks
 const MD_SPECIAL = /([_*\[\]()~`>#+\-=|{}.!\\])/g;
@@ -171,7 +171,7 @@ export class TelegramBot {
       if (revoked.length === 0) {
         await ctx.reply("No tools were in the allowlist.");
       } else {
-        await ctx.reply(`Revoked always-allow for: ${revoked.map(t => `\`${t}\``).join(", ")}`, { parse_mode: "Markdown" });
+        await ctx.reply(`Revoked always-allow for: ${revoked.map((t: string) => `\`${t}\``).join(", ")}`, { parse_mode: "Markdown" });
       }
     });
 
@@ -268,9 +268,14 @@ export class TelegramBot {
         await this.bot.api.deleteWebhook();
         this.webhookMiddleware = null;
         this.bot.start({
+          drop_pending_updates: true,
           onStart: () => {
             console.log("Bot polling started");
           },
+        }).catch((err) => {
+          console.error("Bot polling stopped with error:", err instanceof Error ? err.message : err);
+          this.status.running = false;
+          this.status.error = String(err);
         });
       }
     } catch (err) {

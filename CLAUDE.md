@@ -36,8 +36,8 @@ Bidirectional Telegram-MCP bridge: acts as both an **MCP server** (exposing Tele
 
 - **`src/index.ts`** — Entry point. Wires together bot, MCP client/server, permission services, Express API. Handles graceful shutdown and restart logic.
 - **`src/bot.ts`** — grammY bot with commands (`/start`, `/new`, `/mcp`, `/revoke`). `handleTextMessage()` is fire-and-forget (not awaited) to avoid deadlock with permission callback queries. Includes MarkdownV2 escaping for replies.
-- **`src/mcp-server.ts`** — Exposes tools (`send_message`, `send_photo`, `echo`, `mcp_info`) via both SSE (`/mcp/sse`) and stateless HTTP POST (`/mcp`). Each SSE connection gets its own `Server` instance.
-- **`src/mcp-client.ts`** — Connects to the target MCP server (SSE or HTTP transport). Wraps transport to suppress `notifications/initialized` errors. Auto-reconnects on `callTool()` if disconnected. 3-minute timeout on tool calls to allow for permission prompts.
+- **`src/mcp-server.ts`** — Exposes tools (`send_message`, `send_photo`, `echo`, `mcp_info`) via stateless Streamable HTTP POST (`/mcp`). Each request gets its own `Server` instance.
+- **`src/mcp-client.ts`** — Connects to the target MCP server via Streamable HTTP transport. Wraps transport to suppress `notifications/initialized` errors. Auto-reconnects on `callTool()` if disconnected. 3-minute timeout on tool calls to allow for permission prompts.
 - **`src/api.ts`** — Express app factory. Mounts MCP router at `/mcp` **before** JSON middleware (MCP needs raw body). REST endpoints under `/api/` for config, status, restart, permission handling, and MCP server info.
 - **`src/permission-service.ts`** — Two services: `PermissionService` (Telegram inline keyboard flow) and `WebPermissionService` (SSE-based browser flow with CSRF protection). Permission routing is based on `chatId`: empty → web, otherwise → Telegram.
 - **`src/template.ts`** — Recursively resolves `{{variable}}` placeholders in config params against `MessageContext`.
@@ -49,8 +49,8 @@ Bidirectional Telegram-MCP bridge: acts as both an **MCP server** (exposing Tele
 
 `config.json` (validated by Zod schemas in `types.ts`):
 - `telegram` — Bot token, mode (`polling`|`webhook`), optional `webhookUrl`
-- `target` — MCP client settings: transport (`http`|`sse`), url, tool name, parameter mappings with `{{variable}}` templates
-- `server` — Web UI port (default 8080)
+- `target` — MCP client settings: transport (`http`), url, tool name, parameter mappings with `{{variable}}` templates
+- `server` — Web UI port (default 9634)
 
 The Web UI allows editing config at runtime. `POST /api/restart` reloads config and reconnects both bot and MCP client.
 

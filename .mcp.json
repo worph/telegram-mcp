@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "telegram-mcp": {
+      "type": "url",
+      "url": "http://localhost:9634/mcp"
+    }
+  }
+}

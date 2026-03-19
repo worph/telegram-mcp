@@ -5,9 +5,9 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import express, { Request, Response, Router } from "express";
-import { TelegramBot } from "./bot";
-import { SendMessageParams, SendPhotoParams } from "./types";
-import { getMcpInfo } from "./mcp-info";
+import { TelegramBot } from "./bot.js";
+import { SendMessageParams, SendPhotoParams } from "./types.js";
+import { getMcpInfo } from "./mcp-info.js";
 
 export class MCPServer {
   private bot: TelegramBot;

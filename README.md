@@ -21,7 +21,7 @@ A bidirectional Telegram bot that integrates with the Model Context Protocol (MC
                     │        ▲                               │
                     │        │ config                        │
                     │  ┌─────┴─────┐                         │
-                    │  │  Web UI   │ :8080                   │
+                    │  │  Web UI   │ :9634                   │
                     │  └───────────┘                         │
                     └─────────────────────────────────────────┘
 ```
@@ -63,27 +63,27 @@ docker compose up -d
 docker logs -f telegram-mcp
 ```
 
-The Web UI will be available at `http://localhost:8088`
+The Web UI will be available at `http://localhost:9634`
 
 ### Running without Docker
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Build
-npm run build
+pnpm run build
 
 # Copy and edit config
 cp config.example.json config.json
 
 # Start the server
-npm start
+pnpm start
 ```
 
 ## Configuration
 
-Access the Web UI at `http://localhost:8088` (Docker) or `http://localhost:8080` (local) to configure:
+Access the Web UI at `http://localhost:9634` to configure:
 
 ### Telegram Settings
 
@@ -97,10 +97,10 @@ Access the Web UI at `http://localhost:8088` (Docker) or `http://localhost:8080`
 
 | Field | Description |
 |-------|-------------|
-| Transport | `stdio`, `http`, or `sse` |
-| Command | For stdio: the command to spawn the MCP server |
-| URL | For http/sse: the MCP server endpoint |
-| Tool Name | The tool to call on incoming messages (e.g., `chat`) |
+| Transport | `http` (Streamable HTTP) |
+| URL | The MCP server endpoint |
+| Tool Name | The tool to call on incoming messages (e.g., `query_claude`) |
+| Auth Token | Optional bearer token for authentication |
 
 ### Parameter Mapping
 
@@ -110,8 +110,15 @@ Configure how Telegram message data maps to MCP tool parameters:
 |-------------------|-------|
 | `{{text}}` | Message text content |
 | `{{chatId}}` | Telegram chat ID |
+| `{{userId}}` | Telegram user ID |
 | `{{username}}` | Sender's username |
 | `{{firstName}}` | Sender's first name |
+| `{{lastName}}` | Sender's last name |
+| `{{messageId}}` | Telegram message ID |
+| `{{date}}` | Unix timestamp |
+| `{{isBot}}` | Whether sender is a bot |
+| `{{languageCode}}` | Sender's language code |
+| `{{permissionCallbackUrl}}` | URL for permission callbacks |
 
 Example mapping:
 ```json
@@ -134,8 +141,9 @@ Send a text message to a Telegram chat.
 
 ```typescript
 {
-  chatId: string;   // Target chat ID
-  text: string;     // Message content (supports Markdown)
+  chatId?: string;     // Target chat ID (optional — defaults to last active chat)
+  text: string;        // Message content (supports Markdown)
+  parseMode?: string;  // "Markdown" or "HTML"
 }
 ```
 
@@ -145,9 +153,29 @@ Send a photo to a Telegram chat.
 
 ```typescript
 {
-  chatId: string;   // Target chat ID
-  url: string;      // Image URL
-  caption?: string; // Optional caption
+  chatId?: string;   // Target chat ID (optional — defaults to last active chat)
+  url: string;       // Image URL
+  caption?: string;  // Optional caption
+}
+```
+
+### `echo`
+
+Echo a message back (useful for testing).
+
+```typescript
+{
+  message: string;   // Message to echo
+}
+```
+
+### `mcp_info`
+
+Send MCP server connection info to a Telegram chat.
+
+```typescript
+{
+  chatId?: string;   // Target chat ID (optional)
 }
 ```
 
@@ -156,20 +184,52 @@ Send a photo to a Telegram chat.
 ```
 telegram-mcp/
 ├── src/
-│   ├── mcp-server.ts      # MCP server exposing Telegram tools
-│   ├── mcp-client.ts      # MCP client for calling target LLM
-│   ├── bot.ts             # grammY Telegram bot
-│   ├── config.ts          # Configuration management
-│   ├── api.ts             # REST API for Web UI
-│   └── index.ts           # Application entry point
+│   ├── index.ts               # Entry point, wires everything together
+│   ├── bot.ts                 # grammY Telegram bot
+│   ├── mcp-server.ts          # MCP server exposing Telegram tools (Streamable HTTP)
+│   ├── mcp-client.ts          # MCP client for calling target LLM
+│   ├── mcp-info.ts            # MCP connection info generator
+│   ├── api.ts                 # Express app with REST API for Web UI
+│   ├── config.ts              # Configuration management
+│   ├── permission-service.ts  # Telegram & Web permission flows
+│   ├── template.ts            # {{variable}} template resolution
+│   └── types.ts               # Zod schemas and TypeScript interfaces
 ├── web/
-│   ├── index.html         # Configuration UI
-│   └── app.js             # UI logic
-├── config.json            # Runtime configuration
+│   ├── index.html             # Configuration UI
+│   └── app.js                 # UI logic
+├── config.json                # Runtime configuration (gitignored)
+├── config.example.json        # Example configuration
 ├── Dockerfile
 ├── docker-compose.yml
 └── package.json
 ```
+
+## Adding to Claude Code as an MCP Server
+
+Once the Telegram MCP server is running, you can connect it to Claude Code so the LLM can use the Telegram tools directly.
+
+### Via CLI
+
+```bash
+claude mcp add-json telegram-mcp '{"type":"url","url":"http://localhost:9634/mcp"}'
+```
+
+### Via `.mcp.json`
+
+Create or edit `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "telegram-mcp": {
+      "type": "url",
+      "url": "http://localhost:9634/mcp"
+    }
+  }
+}
+```
+
+Then restart Claude Code and approve the server when prompted (or manage it via `/mcp`).
 
 ## Development
 
@@ -188,9 +248,9 @@ docker compose down
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PORT` | Web UI / API port | `8080` |
+| `PORT` | Web UI / API port | `9634` |
 | `CONFIG_PATH` | Path to config file | `./config.json` |
-| `LOG_LEVEL` | Logging verbosity | `info` |
+| `PUBLIC_URL` | Public URL for external access | (none) |
 
 ## License
 

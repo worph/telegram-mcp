@@ -1,12 +1,15 @@
 import express, { Request, Response, Router } from "express";
 import * as os from "os";
 import * as path from "path";
-import { TelegramBot } from "./bot";
-import { getMaskedConfig, loadConfig, saveConfig, validateConfig } from "./config";
-import { MCPClient } from "./mcp-client";
-import { MCPServer } from "./mcp-server";
-import { PermissionService, WebPermissionService } from "./permission-service";
-import { Config, HandlePermissionParams, WebPermissionResolveBody } from "./types";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { TelegramBot } from "./bot.js";
+import { getMaskedConfig, loadConfig, saveConfig, validateConfig } from "./config.js";
+import { MCPClient } from "./mcp-client.js";
+import { MCPServer } from "./mcp-server.js";
+import { PermissionService, WebPermissionService } from "./permission-service.js";
+import { Config, HandlePermissionParams, WebPermissionResolveBody } from "./types.js";
 
 export interface ApiDependencies {
   bot: TelegramBot;

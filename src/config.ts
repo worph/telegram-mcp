@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { Config, ConfigSchema } from "./types";
+import { Config, ConfigSchema } from "./types.js";
 
 const CONFIG_PATH = process.env.CONFIG_PATH || path.join(process.cwd(), "config.json");
 
@@ -41,14 +41,14 @@ export function loadConfig(): Config {
 
   try {
     parsed = JSON.parse(rawContent);
-  } catch (e) {
+  } catch (e: unknown) {
     throw new Error(`Invalid JSON in config file: ${e}`);
   }
 
   const result = ConfigSchema.safeParse(parsed);
   if (!result.success) {
     const errors = result.error.errors.map(
-      (e) => `  - ${e.path.join(".")}: ${e.message}`
+      (e: { path: (string | number)[]; message: string }) => `  - ${e.path.join(".")}: ${e.message}`
     ).join("\n");
     throw new Error(`Invalid config:\n${errors}`);
   }
@@ -60,7 +60,7 @@ export function saveConfig(config: Config): void {
   const result = ConfigSchema.safeParse(config);
   if (!result.success) {
     const errors = result.error.errors.map(
-      (e) => `  - ${e.path.join(".")}: ${e.message}`
+      (e: { path: (string | number)[]; message: string }) => `  - ${e.path.join(".")}: ${e.message}`
     ).join("\n");
     throw new Error(`Invalid config:\n${errors}`);
   }
@@ -75,7 +75,7 @@ export function validateConfig(config: unknown): { valid: boolean; errors?: stri
   }
 
   const errors = result.error.errors.map(
-    (e) => `${e.path.join(".")}: ${e.message}`
+    (e: { path: (string | number)[]; message: string }) => `${e.path.join(".")}: ${e.message}`
   );
   return { valid: false, errors };
 }

@@ -2,6 +2,7 @@
   "name": "telegram-mcp",
   "version": "1.0.0",
   "description": "Telegram bot with MCP server integration",
+  "type": "module",
   "main": "dist/index.js",
   "packageManager": "pnpm@9.15.4",
   "scripts": {

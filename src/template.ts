@@ -1,4 +1,4 @@
-import { MessageContext } from "./types";
+import { MessageContext } from "./types.js";
 
 const TEMPLATE_REGEX = /\{\{(\w+)\}\}/g;
 

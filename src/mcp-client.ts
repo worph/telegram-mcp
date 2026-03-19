@@ -2,8 +2,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
-import { resolveTemplate } from "./template";
-import { TargetConfig } from "./types";
+import { resolveTemplate } from "./template.js";
+import { TargetConfig } from "./types.js";
 
 /**
  * Wraps a transport to silently ignore errors when sending

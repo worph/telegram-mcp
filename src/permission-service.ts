@@ -1,13 +1,13 @@
 import crypto from "crypto";
 import { Response } from "express";
 import { InlineKeyboard } from "grammy";
-import { TelegramBot } from "./bot";
+import { TelegramBot } from "./bot.js";
 import {
   PendingPermission,
   PermissionRequest,
   PermissionResponse,
   WebPermissionRequest,
-} from "./types";
+} from "./types.js";
 
 const DEFAULT_PERMISSION_TIMEOUT = 120; // seconds
 

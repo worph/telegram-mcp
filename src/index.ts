@@ -1,9 +1,9 @@
-import { createApi } from "./api";
-import { TelegramBot } from "./bot";
-import { loadConfig } from "./config";
-import { MCPClient } from "./mcp-client";
-import { MCPServer } from "./mcp-server";
-import { PermissionService, WebPermissionService } from "./permission-service";
+import { createApi } from "./api.js";
+import { TelegramBot } from "./bot.js";
+import { loadConfig } from "./config.js";
+import { MCPClient } from "./mcp-client.js";
+import { MCPServer } from "./mcp-server.js";
+import { PermissionService, WebPermissionService } from "./permission-service.js";
 
 async function main(): Promise<void> {
   console.log("Starting Telegram MCP...");
