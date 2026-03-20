@@ -44,6 +44,9 @@ RUN pnpm install --frozen-lockfile --prod
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
+# Copy discovery responder
+COPY mcp-announce.cjs ./
+
 # Copy web files
 COPY web/ ./web/
 

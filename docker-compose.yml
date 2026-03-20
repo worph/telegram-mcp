@@ -9,11 +9,16 @@ services:
       - ./data:/app/data:rw
     environment:
       - NODE_ENV=production
+      - DISCOVERY_PORT=9099
+      - MCP_PORT=9634
       # - PUBLIC_URL=https://your-domain.com  # Set to enable webhook mode automatically
     restart: unless-stopped
     networks:
       - mcp-network
+      - mcp-net
 
 networks:
   mcp-network:
+    external: true
+  mcp-net:
     external: true
