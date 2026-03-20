@@ -349,7 +349,7 @@ export class TelegramBot {
       }
     }
 
-    const baseUrl = (process.env.PUBLIC_URL || `http://${os.hostname()}:${process.env.PORT || 9634}`).replace(/\/$/, "");
+    const localUrl = `http://${os.hostname()}:${process.env.PORT || 9634}`;
     const messageContext: MessageContext = createMessageContext(
       message.text,
       message.chat.id,
@@ -361,7 +361,7 @@ export class TelegramBot {
       message.date,
       message.from.is_bot,
       message.from.language_code,
-      `${baseUrl}/api/permission`,
+      `${localUrl}/api/permission`,
       this.config.telegram.chatId
     );
 

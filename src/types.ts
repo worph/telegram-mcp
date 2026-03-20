@@ -4,7 +4,7 @@ import { z } from "zod";
 export const TelegramConfigSchema = z.object({
   botToken: z.string().regex(/^\d+:[A-Za-z0-9_-]+$/, "Invalid bot token format"),
   chatId: z.string().optional(),
-  mode: z.enum(["polling", "webhook"]).default("polling"),
+  mode: z.enum(["polling", "webhook"]).default(process.env.PUBLIC_URL ? "webhook" : "polling"),
   webhookUrl: z.string().url().optional(),
 }).refine(
   (data) => data.mode !== "webhook" || !!data.webhookUrl || !!process.env.PUBLIC_URL,

@@ -9,7 +9,7 @@ services:
       - ./data:/app/data:rw
     environment:
       - NODE_ENV=production
-      # - PUBLIC_URL=https://your-domain.com  # External/public URL (for clients outside Docker network)
+      # - PUBLIC_URL=https://your-domain.com  # Set to enable webhook mode automatically
     restart: unless-stopped
     networks:
       - mcp-network

@@ -130,6 +130,7 @@ function createApiRouter(deps: ApiDependencies): Router {
     }
 
     const baseUrl = (process.env.PUBLIC_URL || `http://${os.hostname()}:${process.env.PORT || 9634}`).replace(/\/$/, "");
+    const localUrl = `http://${os.hostname()}:${process.env.PORT || 9634}`;
     const claudeConfig = JSON.stringify({ mcpServers: { telegram: { type: "http", url: `${baseUrl}/mcp` } } }, null, 2);
     const infoText = [
       "A Telegram MCP server is available for you to connect to. Please acknowledge that you have received these connection details and confirm you are ready to use the `send_message` tool to send messages to the user via Telegram.",
@@ -152,7 +153,7 @@ function createApiRouter(deps: ApiDependencies): Router {
     ].join("\n");
 
     try {
-      const result = await deps.mcpClient.sendText(infoText, `${baseUrl}/api/permission`);
+      const result = await deps.mcpClient.sendText(infoText, `${localUrl}/api/permission`);
       const content = (result as any)?.content;
       const responseText = Array.isArray(content)
         ? content
