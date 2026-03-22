@@ -539,6 +539,39 @@
       display: flex;
       gap: 8px;
     }
+    .beacon-server, .beacon-tool {
+      padding: 10px 12px;
+      background: white;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: border-color 0.15s;
+    }
+    .beacon-server:hover, .beacon-tool:hover {
+      background: #f0f9ff;
+    }
+    .beacon-server.selected, .beacon-tool.selected {
+      border-color: #0088cc;
+    }
+    .beacon-server-name, .beacon-tool-name {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .beacon-tool-name {
+      font-family: monospace;
+      font-size: 13px;
+    }
+    .beacon-desc {
+      font-size: 12px;
+      color: #6c757d;
+    }
+    .beacon-url {
+      font-size: 11px;
+      color: #adb5bd;
+      font-family: monospace;
+      margin-top: 2px;
+    }
   </style>
 </head>
 <body>
@@ -719,8 +752,28 @@
             <option value="">Custom</option>
             <option value="echo">Echo (built-in test)</option>
             <option value="query_claude">Claude Code App</option>
+            <option value="beacon">Beacon Discovery</option>
           </select>
           <p class="hint">Select a preset to auto-fill the fields below, or choose Custom</p>
+
+          <div id="beacon-panel" class="hidden" style="margin-bottom: 16px;">
+            <div style="background: #f8f9fa; border-radius: 8px; padding: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span style="font-weight: 600; font-size: 14px;">Discovered Servers</span>
+                <button class="btn-secondary" onclick="runBeaconDiscovery()" id="beacon-scan-btn" style="padding: 6px 14px; font-size: 13px;">
+                  Scan Network
+                </button>
+              </div>
+              <div id="beacon-loading" class="hidden" style="text-align: center; padding: 20px; color: #6c757d;">
+                Scanning for MCP servers...
+              </div>
+              <div id="beacon-empty" class="hidden" style="text-align: center; padding: 20px; color: #6c757d;">
+                No servers found. Make sure MCP servers are running on the network.
+              </div>
+              <div id="beacon-servers"></div>
+              <div id="beacon-tools" style="margin-top: 12px;"></div>
+            </div>
+          </div>
 
           <label for="transport">Transport</label>
           <select id="transport">

@@ -350,6 +350,16 @@ const PRESETS = {
 // Apply a preset to the form
 function applyPreset() {
   const presetName = document.getElementById('preset').value;
+  const beaconPanel = document.getElementById('beacon-panel');
+
+  if (presetName === 'beacon') {
+    beaconPanel.classList.remove('hidden');
+    runBeaconDiscovery();
+    return;
+  } else {
+    beaconPanel.classList.add('hidden');
+  }
+
   if (!presetName || !PRESETS[presetName]) return;
 
   const preset = PRESETS[presetName];
@@ -358,6 +368,138 @@ function applyPreset() {
   document.getElementById('authToken').value = preset.authToken;
   document.getElementById('tool').value = preset.tool;
   document.getElementById('params').value = JSON.stringify(preset.params, null, 2);
+}
+
+// Template variable mapping for auto-generating params from tool schemas
+const TEMPLATE_MAP = {
+  text: '{{text}}',
+  message: '{{text}}',
+  prompt: '{{text}}',
+  query: '{{text}}',
+  input: '{{text}}',
+  content: '{{text}}',
+  chatId: '{{chatId}}',
+  chat_id: '{{chatId}}',
+  userId: '{{userId}}',
+  user_id: '{{userId}}',
+  username: '{{username}}',
+  user_name: '{{username}}',
+  firstName: '{{firstName}}',
+  first_name: '{{firstName}}',
+  lastName: '{{lastName}}',
+  last_name: '{{lastName}}',
+  messageId: '{{messageId}}',
+  message_id: '{{messageId}}',
+  permissionCallbackUrl: '{{permissionCallbackUrl}}',
+  callback_url: '{{permissionCallbackUrl}}',
+};
+
+// Generate params object from a tool's inputSchema using template variables
+function generateParamsFromSchema(inputSchema) {
+  if (!inputSchema || !inputSchema.properties) return {};
+
+  const params = {};
+  const required = new Set(inputSchema.required || []);
+
+  for (const [key] of Object.entries(inputSchema.properties)) {
+    if (TEMPLATE_MAP[key]) {
+      params[key] = TEMPLATE_MAP[key];
+    } else if (required.has(key)) {
+      params[key] = '';
+    }
+  }
+
+  return params;
+}
+
+// Beacon discovery state
+let _beaconServers = [];
+
+// Run beacon discovery scan
+async function runBeaconDiscovery() {
+  const loading = document.getElementById('beacon-loading');
+  const empty = document.getElementById('beacon-empty');
+  const serversDiv = document.getElementById('beacon-servers');
+  const toolsDiv = document.getElementById('beacon-tools');
+  const scanBtn = document.getElementById('beacon-scan-btn');
+
+  loading.classList.remove('hidden');
+  empty.classList.add('hidden');
+  serversDiv.innerHTML = '';
+  toolsDiv.innerHTML = '';
+  scanBtn.disabled = true;
+  scanBtn.textContent = 'Scanning...';
+
+  try {
+    const response = await fetch('/api/beacon/discover');
+    const { servers } = await response.json();
+
+    if (!servers || servers.length === 0) {
+      empty.classList.remove('hidden');
+      return;
+    }
+
+    _beaconServers = servers;
+
+    serversDiv.innerHTML = servers.map((s, i) => `
+      <div class="beacon-server ${i === 0 ? 'selected' : ''}" onclick="selectBeaconServer(${i})" data-index="${i}">
+        <div class="beacon-server-name">${escapeHtml(s.name)}</div>
+        <div class="beacon-desc">${escapeHtml(s.description)}</div>
+        <div class="beacon-url">${escapeHtml(s.url)}</div>
+      </div>
+    `).join('');
+
+    selectBeaconServer(0);
+  } catch (err) {
+    showToast('Discovery failed: ' + err.message, 'error');
+  } finally {
+    loading.classList.add('hidden');
+    scanBtn.disabled = false;
+    scanBtn.textContent = 'Scan Network';
+  }
+}
+
+// Select a discovered beacon server and show its tools
+function selectBeaconServer(index) {
+  if (!_beaconServers[index]) return;
+
+  const server = _beaconServers[index];
+
+  document.querySelectorAll('.beacon-server').forEach((el, i) => {
+    el.classList.toggle('selected', i === index);
+  });
+
+  const toolsDiv = document.getElementById('beacon-tools');
+  if (server.tools && server.tools.length > 0) {
+    toolsDiv.innerHTML =
+      '<div style="font-weight: 600; font-size: 13px; margin-bottom: 8px;">Tools</div>' +
+      server.tools.map((t, i) => `
+        <div class="beacon-tool" onclick="selectBeaconTool(${index}, ${i})" data-server="${index}" data-tool="${i}">
+          <div class="beacon-tool-name">${escapeHtml(t.name)}</div>
+          <div class="beacon-desc">${escapeHtml(t.description || '')}</div>
+        </div>
+      `).join('');
+  } else {
+    toolsDiv.innerHTML = '<div style="color: #6c757d; font-size: 13px;">No tools advertised by this server.</div>';
+  }
+}
+
+// Select a tool from a beacon server and fill the form
+function selectBeaconTool(serverIndex, toolIndex) {
+  const server = _beaconServers[serverIndex];
+  const tool = server.tools[toolIndex];
+
+  document.querySelectorAll('.beacon-tool').forEach((el, i) => {
+    el.classList.toggle('selected', i === toolIndex);
+  });
+
+  document.getElementById('transport').value = 'http';
+  document.getElementById('targetUrl').value = server.url;
+  document.getElementById('authToken').value = '';
+  document.getElementById('tool').value = tool.name;
+  document.getElementById('params').value = JSON.stringify(
+    generateParamsFromSchema(tool.inputSchema), null, 2
+  );
 }
 
 // Detect which preset matches current config
