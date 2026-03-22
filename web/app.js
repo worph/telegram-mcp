@@ -336,7 +336,7 @@ const PRESETS = {
   },
   query_claude: {
     transport: 'http',
-    url: 'http://claude:8080/mcp',
+    url: 'http://claude:9090/mcp',
     authToken: '',
     tool: 'query_claude',
     params: {
