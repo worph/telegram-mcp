@@ -59,12 +59,15 @@ RUN mkdir -p /app/data
 # Set default config path to writable data directory
 ENV CONFIG_PATH=/app/data/config.json
 
+# Default port
+ENV PORT=9634
+
 # Expose port
-EXPOSE 8080
+EXPOSE 9634
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/status || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:9634/api/status || exit 1
 
 # Run the application
 CMD ["node", "dist/index.js"]

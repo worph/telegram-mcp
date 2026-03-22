@@ -1,6 +1,6 @@
 import { createApi } from "./api.js";
 import { TelegramBot } from "./bot.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, isPlaceholderConfig } from "./config.js";
 import { MCPClient } from "./mcp-client.js";
 import { MCPServer } from "./mcp-server.js";
 import { PermissionService, WebPermissionService } from "./permission-service.js";
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     onRestart: restart,
   });
 
-  const port = config.server?.port || 9634;
+  const port = parseInt(process.env.PORT || String(config.server?.port || 9634), 10);
   const server = app.listen(port, () => {
     console.log(`Web UI available at http://localhost:${port}`);
     console.log(`MCP Server available at http://localhost:${port}/mcp`);
@@ -79,20 +79,30 @@ async function main(): Promise<void> {
     });
   });
 
-  // Start bot (don't crash if token is invalid - user can fix via UI)
-  try {
-    await bot.start();
-  } catch (err) {
-    console.warn("Bot failed to start (configure via Web UI):", err instanceof Error ? err.message : err);
-  }
+  const setupMode = isPlaceholderConfig(config);
 
-  try {
-    await mcpClient.connect();
-  } catch (err) {
-    console.warn("MCP client connection failed (will retry on message):", err);
-  }
+  if (setupMode) {
+    console.log("============================================");
+    console.log("  Telegram MCP is running in SETUP MODE.");
+    console.log("  No bot token configured yet.");
+    console.log(`  Open http://localhost:${port} to configure.`);
+    console.log("============================================");
+  } else {
+    // Start bot (don't crash if token is invalid - user can fix via UI)
+    try {
+      await bot.start();
+    } catch (err) {
+      console.warn("Bot failed to start (configure via Web UI):", err instanceof Error ? err.message : err);
+    }
 
-  console.log("Telegram MCP is running. Configure via Web UI if needed.");
+    try {
+      await mcpClient.connect();
+    } catch (err) {
+      console.warn("MCP client connection failed (will retry on message):", err);
+    }
+
+    console.log("Telegram MCP is running.");
+  }
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\nReceived ${signal}, shutting down...`);

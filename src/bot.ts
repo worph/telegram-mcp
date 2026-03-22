@@ -6,7 +6,7 @@ import { BotStatus, Config, MessageContext } from "./types.js";
 import { createMessageContext, resolveTemplate } from "./template.js";
 import { MCPClient } from "./mcp-client.js";
 import { PermissionService } from "./permission-service.js";
-import { saveConfig } from "./config.js";
+import { saveConfig, isPlaceholderConfig } from "./config.js";
 
 // Characters that must be escaped in MarkdownV2 outside of code blocks
 const MD_SPECIAL = /([_*\[\]()~`>#+\-=|{}.!\\])/g;
@@ -101,6 +101,12 @@ export class TelegramBot {
   }
 
   async start(): Promise<void> {
+    if (isPlaceholderConfig(this.config)) {
+      console.log("Bot not started: bot token not configured. Configure via Web UI.");
+      this.status = { running: false, error: "Bot token not configured" };
+      return;
+    }
+
     if (this.bot) {
       await this.stop();
     }

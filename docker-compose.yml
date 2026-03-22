@@ -17,6 +17,7 @@ services:
       - mcp-network
       - mcp-net
 
+# Shared networks — create with: docker network create mcp-network && docker network create mcp-net
 networks:
   mcp-network:
     external: true

@@ -1,17 +1,16 @@
 {
   "telegram": {
-    "botToken": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
-    "chatId": "",
+    "botToken": "000000000:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "mode": "polling"
   },
   "target": {
     "transport": "http",
-    "url": "http://claude-code:8080/mcp",
-    "tool": "query_claude",
+    "url": "http://localhost:9634/mcp",
+    "tool": "echo",
     "params": {
-      "prompt": "{{text}}",
+      "message": "{{text}}",
       "chatId": "{{chatId}}",
-      "enablePermissionPrompts": true
+      "username": "{{username}}"
     }
   },
   "server": {

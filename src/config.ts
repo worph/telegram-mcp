@@ -4,6 +4,12 @@ import { Config, ConfigSchema } from "./types.js";
 
 const CONFIG_PATH = process.env.CONFIG_PATH || path.join(process.cwd(), "config.json");
 
+export const PLACEHOLDER_TOKEN = "000000000:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+
+export function isPlaceholderConfig(config: Config): boolean {
+  return config.telegram.botToken === PLACEHOLDER_TOKEN;
+}
+
 const DEFAULT_CONFIG: Config = {
   telegram: {
     botToken: "000000000:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
@@ -32,7 +38,7 @@ export function loadConfig(): Config {
       fs.mkdirSync(configDir, { recursive: true });
     }
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2), "utf-8");
-    console.log(`Default config created. Please update it with your Telegram bot token and MCP server settings.`);
+    console.log(`Default config created at ${CONFIG_PATH}. Configure via Web UI or edit the file directly.`);
     return DEFAULT_CONFIG;
   }
 
