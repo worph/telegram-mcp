@@ -7,6 +7,7 @@ import { createMessageContext, resolveTemplate } from "./template.js";
 import { MCPClient } from "./mcp-client.js";
 import { PermissionService } from "./permission-service.js";
 import { saveConfig, isPlaceholderConfig } from "./config.js";
+import { recordMessage } from "./history.js";
 
 // Characters that must be escaped in MarkdownV2 outside of code blocks
 const MD_SPECIAL = /([_*\[\]()~`>#+\-=|{}.!\\])/g;
@@ -373,12 +374,27 @@ export class TelegramBot {
 
     console.log(`Received message from ${messageContext.username || messageContext.userId}: ${messageContext.text}`);
 
+    // Record the incoming message so the LLM can later pull it via get_chat_history
+    recordMessage(String(message.chat.id), {
+      role: "user",
+      name: messageContext.username || messageContext.firstName,
+      text: message.text,
+      date: message.date,
+    });
+
     if (!this.mcpClient) {
       console.warn("MCP client not set, skipping tool call");
       return;
     }
 
     try {
+      // Resolve the prompt template first (expanding its own {{vars}}) and expose
+      // it as {{template}} so params reference the text once instead of inlining it.
+      const promptTemplate = this.config.target.promptTemplate;
+      messageContext.template = promptTemplate
+        ? (resolveTemplate(promptTemplate, messageContext) as string)
+        : messageContext.text;
+
       const resolvedParams = resolveTemplate(
         this.config.target.params,
         messageContext
@@ -431,6 +447,13 @@ export class TelegramBot {
   }
 
   private async replyWithMarkdown(ctx: Context, text: string): Promise<void> {
+    if (ctx.chat) {
+      recordMessage(String(ctx.chat.id), {
+        role: "assistant",
+        text,
+        date: Math.floor(Date.now() / 1000),
+      });
+    }
     try {
       await ctx.reply(escapeMarkdownV2(text), { parse_mode: "MarkdownV2" });
     } catch {
@@ -446,6 +469,11 @@ export class TelegramBot {
 
     const options = parseMode ? { parse_mode: parseMode } : undefined;
     await this.bot.api.sendMessage(chatId, text, options);
+    recordMessage(chatId, {
+      role: "assistant",
+      text,
+      date: Math.floor(Date.now() / 1000),
+    });
   }
 
   async sendPhoto(chatId: string, url: string, caption?: string): Promise<void> {

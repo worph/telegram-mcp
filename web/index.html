@@ -751,7 +751,6 @@
           <select id="preset" onchange="applyPreset()">
             <option value="">Custom</option>
             <option value="echo">Echo (built-in test)</option>
-            <option value="query_claude">Claude Code App</option>
             <option value="beacon">Beacon Discovery</option>
           </select>
           <p class="hint">Select a preset to auto-fill the fields below, or choose Custom</p>
@@ -769,6 +768,9 @@
               </div>
               <div id="beacon-empty" class="hidden" style="text-align: center; padding: 20px; color: #6c757d;">
                 No servers found. Make sure MCP servers are running on the network.
+              </div>
+              <div id="beacon-claude-status" class="hidden" style="display: flex; align-items: center; gap: 8px; background: #e7f5ec; color: #1a7f4b; border: 1px solid #b7e4c7; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: 600; margin-bottom: 12px;">
+                <span>✓</span><span id="beacon-claude-status-text">Claude connected via beacon — auto-selected as destination</span>
               </div>
               <div id="beacon-servers"></div>
               <div id="beacon-tools" style="margin-top: 12px;"></div>
@@ -790,6 +792,12 @@
 
           <label for="tool">Tool Name</label>
           <input type="text" id="tool" placeholder="echo">
+
+          <div id="prompt-wrapper-group" class="hidden">
+            <label for="promptTemplate">Prompt template <span style="font-weight:400;color:#6c757d;">(referenced as {{template}} in Parameters)</span></label>
+            <textarea id="promptTemplate" rows="8" placeholder="Context for the LLM. Must include {{text}} where the user's message goes."></textarea>
+            <p class="hint">Use <code>{{text}}</code> for the message. The default tells the LLM it can call <code>get_chat_history</code> with <code>{{chatId}}</code> to pull earlier messages for context. The Parameters JSON below references this once via <code>{{template}}</code>.</p>
+          </div>
 
           <label for="params">Parameters (JSON)</label>
           <textarea id="params" placeholder='{"message": "{{text}}", "chatId": "{{chatId}}"}'></textarea>
@@ -846,23 +854,6 @@
       <p style="color: #888; font-size: 12px; margin: 6px 0 0;">
         Add this to your <code>claude_desktop_config.json</code> under <code>mcpServers</code>.
       </p>
-
-      <p style="color: #555; font-size: 13px; line-height: 1.6; margin: 16px 0 8px;">
-        Use the button below to forward the MCP endpoint URLs and setup instructions to your LLM via the configured MCP target.
-        This lets the LLM configure itself to call <code>send_message</code> and reach you directly on Telegram.
-      </p>
-
-      <div class="card-actions">
-        <button class="btn-primary" id="send-mcp-info-btn" onclick="sendMcpInfo()" disabled>
-          Send Config via MCP Target
-        </button>
-      </div>
-      <p id="send-mcp-info-hint" style="font-size: 12px; color: #888; margin: 6px 0 0;"></p>
-
-      <div id="mcp-target-response" class="hidden" style="margin-top: 12px; background: #f8f9fa; border-radius: 8px; padding: 12px 14px;">
-        <div style="font-size: 12px; font-weight: 600; color: #6c757d; margin-bottom: 6px;">MCP Target Response</div>
-        <pre id="mcp-target-response-text" style="margin: 0; font-family: inherit; font-size: 13px; color: #212529; white-space: pre-wrap; word-break: break-word;"></pre>
-      </div>
     </div>
   </div>
 

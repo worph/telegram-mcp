@@ -8,6 +8,7 @@ import express, { Request, Response, Router } from "express";
 import { TelegramBot } from "./bot.js";
 import { SendMessageParams, SendPhotoParams } from "./types.js";
 import { getMcpInfo } from "./mcp-info.js";
+import { getHistory } from "./history.js";
 
 export class MCPServer {
   private bot: TelegramBot;
@@ -119,6 +120,24 @@ export class MCPServer {
               required: [],
             },
           },
+          {
+            name: "get_chat_history",
+            description: "Retrieve recent messages from a Telegram conversation for added context. Returns the rolling transcript the bot has seen (user messages and bot replies), most recent last. Note: only messages received since the bot started storing are available — there is no backfill of older history. If chatId is omitted, uses the configured default or the last active chat.",
+            inputSchema: {
+              type: "object" as const,
+              properties: {
+                chatId: {
+                  type: "string",
+                  description: "The chat ID to fetch history for (optional if default chatId is configured)",
+                },
+                limit: {
+                  type: "number",
+                  description: "Maximum number of recent messages to return (default 20)",
+                },
+              },
+              required: [],
+            },
+          },
         ],
       };
     });
@@ -180,6 +199,34 @@ export class MCPServer {
                 {
                   type: "text" as const,
                   text: `MCP info sent to chat ${chatId}`,
+                },
+              ],
+            };
+          }
+
+          case "get_chat_history": {
+            const params = args as unknown as { chatId?: string; limit?: number };
+            const chatId = this.resolveChatId(params.chatId);
+            const messages = getHistory(chatId, params.limit ?? 20);
+            if (messages.length === 0) {
+              return {
+                content: [
+                  { type: "text" as const, text: `No stored history for chat ${chatId}.` },
+                ],
+              };
+            }
+            const transcript = messages
+              .map((m) => {
+                const ts = new Date(m.date * 1000).toISOString().replace("T", " ").slice(0, 16);
+                const who = m.role === "assistant" ? "assistant" : m.name || "user";
+                return `[${ts}] ${who}: ${m.text}`;
+              })
+              .join("\n");
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Recent conversation for chat ${chatId} (${messages.length} message(s)):\n\n${transcript}`,
                 },
               ],
             };

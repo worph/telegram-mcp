@@ -17,6 +17,9 @@ export const TargetConfigSchema = z.object({
   tool: z.string().min(1),
   params: z.record(z.any()),
   authToken: z.string().optional(),
+  // Optional prompt template. When set, params can reference it via {{template}};
+  // it is resolved (its own {{vars}} expanded) before being substituted in.
+  promptTemplate: z.string().optional(),
 });
 
 export const ServerConfigSchema = z.object({
@@ -49,6 +52,8 @@ export interface MessageContext {
   languageCode: string | undefined;
   permissionCallbackUrl?: string;
   defaultChatId?: string;
+  // Resolved prompt template, exposed so params can reference it via {{template}}
+  template?: string;
 }
 
 // Web permission SSE event payload

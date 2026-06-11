@@ -73,8 +73,6 @@ function updateUI(status) {
     mcpStatus.className = 'status-badge warning';
     mcpStatusText.textContent = 'Disconnected';
   }
-
-  updateSendMcpInfoButton();
 }
 
 // Load config from server
@@ -113,6 +111,8 @@ async function loadConfig() {
     document.getElementById('tool').value = currentConfig.target.tool;
     document.getElementById('params').value = JSON.stringify(currentConfig.target.params, null, 2);
     document.getElementById('preset').value = detectPreset(currentConfig.target);
+    document.getElementById('promptTemplate').value = currentConfig.target.promptTemplate || '';
+    refreshPromptWrapperFromParams();
 
     // Update MCP display
     updateMCPDisplay();
@@ -253,6 +253,11 @@ async function saveMCP() {
     if (authToken) {
       target.authToken = authToken;
     }
+    // Persist the prompt template (referenced as {{template}} in params) when in use
+    const promptTemplate = document.getElementById('promptTemplate').value;
+    if (JSON.stringify(params).includes('{{template}}') && promptTemplate.trim()) {
+      target.promptTemplate = promptTemplate;
+    }
 
     const config = {
       telegram: currentConfig.telegram,
@@ -334,17 +339,6 @@ const PRESETS = {
       username: '{{username}}',
     },
   },
-  query_claude: {
-    transport: 'http',
-    url: 'http://claude:9090/mcp',
-    authToken: '',
-    tool: 'query_claude',
-    params: {
-      prompt: '{{text}}',
-      chatId: '{{chatId}}',
-      permissionCallbackUrl: '{{permissionCallbackUrl}}',
-    },
-  },
 };
 
 // Apply a preset to the form
@@ -360,7 +354,11 @@ function applyPreset() {
     beaconPanel.classList.add('hidden');
   }
 
-  if (!presetName || !PRESETS[presetName]) return;
+  if (!presetName || !PRESETS[presetName]) {
+    // Custom: keep current fields, just re-evaluate the prompt-template editor
+    refreshPromptWrapperFromParams();
+    return;
+  }
 
   const preset = PRESETS[presetName];
   document.getElementById('transport').value = preset.transport;
@@ -368,6 +366,7 @@ function applyPreset() {
   document.getElementById('authToken').value = preset.authToken;
   document.getElementById('tool').value = preset.tool;
   document.getElementById('params').value = JSON.stringify(preset.params, null, 2);
+  refreshPromptWrapperFromParams();
 }
 
 // Template variable mapping for auto-generating params from tool schemas
@@ -412,6 +411,86 @@ function generateParamsFromSchema(inputSchema) {
   return params;
 }
 
+// ── Claude / LLM Detection (ported from chronos-mcp) ─────────────────────────
+const CLAUDE_TOOL_PATTERNS = [
+  /^(query_?claude|ask_?claude|claude_?query|prompt_?claude)$/i,
+  /^(llm_?prompt|llm_?query|send_?prompt|run_?prompt)$/i,
+  /^(ask_?llm|query_?llm|chat|complete|generate)$/i,
+  /claude/i,
+];
+
+const CLAUDE_DESCRIPTION_KEYWORDS = [
+  'claude', 'llm', 'language model', 'anthropic',
+  'send a prompt', 'query claude', 'natural language',
+  'ai prompt', 'ask claude', 'claude code agent',
+];
+
+// Scan discovered servers for a Claude/LLM tool. Returns indices so the panel
+// can auto-select it, or null if none looks like an LLM destination.
+function detectClaudeTool(servers) {
+  for (let si = 0; si < servers.length; si++) {
+    const tools = servers[si].tools || [];
+    for (let ti = 0; ti < tools.length; ti++) {
+      const tool = tools[ti];
+      const nameMatch = CLAUDE_TOOL_PATTERNS.some(p => p.test(tool.name));
+      const descMatch = CLAUDE_DESCRIPTION_KEYWORDS.some(kw =>
+        (tool.description || '').toLowerCase().includes(kw)
+      );
+      if (nameMatch || descMatch) {
+        return { serverIndex: si, toolIndex: ti, server: servers[si], tool };
+      }
+    }
+  }
+  return null;
+}
+
+// Param names that typically carry the user's message / prompt text.
+const PROMPT_PARAM_NAMES = ['prompt', 'message', 'query', 'text', 'input', 'content', 'question'];
+
+// Find the prompt-carrying param in a tool's inputSchema (or among existing param keys).
+function findPromptParam(inputSchema) {
+  if (!inputSchema || !inputSchema.properties) return null;
+  for (const name of PROMPT_PARAM_NAMES) {
+    const p = inputSchema.properties[name];
+    if (p && p.type === 'string') return name;
+  }
+  const required = inputSchema.required || [];
+  const strings = Object.entries(inputSchema.properties).filter(([, v]) => v.type === 'string');
+  if (strings.length === 1) return strings[0][0];
+  const reqStrings = strings.filter(([k]) => required.includes(k));
+  if (reqStrings.length === 1) return reqStrings[0][0];
+  return null;
+}
+
+// Default prompt template applied when an LLM (e.g. Claude) is auto-selected.
+// Instructs the model how to pull more conversation context on demand. Stored
+// once in config.target.promptTemplate; referenced from params as {{template}}.
+const DEFAULT_CLAUDE_PROMPT = `You are responding to a message from a Telegram user ({{firstName}}).
+
+If you need more context about the conversation, call the get_chat_history tool with chatId "{{chatId}}" to retrieve recent messages. Only messages the bot has already seen are available — there is no older backfill.
+
+Reply directly and concisely.
+
+Message:
+{{text}}`;
+
+// The prompt template lives in its own field ({{template}} expands to it at send
+// time), so the text is stored once — not duplicated inside the params JSON.
+function showPromptWrapper() {
+  document.getElementById('prompt-wrapper-group').classList.remove('hidden');
+}
+
+function hidePromptWrapper() {
+  document.getElementById('prompt-wrapper-group').classList.add('hidden');
+}
+
+// The editor is shown whenever the params JSON references the {{template}} token.
+function refreshPromptWrapperFromParams() {
+  const raw = document.getElementById('params').value || '';
+  if (raw.includes('{{template}}')) showPromptWrapper();
+  else hidePromptWrapper();
+}
+
 // Beacon discovery state
 let _beaconServers = [];
 
@@ -425,6 +504,7 @@ async function runBeaconDiscovery() {
 
   loading.classList.remove('hidden');
   empty.classList.add('hidden');
+  document.getElementById('beacon-claude-status').classList.add('hidden');
   serversDiv.innerHTML = '';
   toolsDiv.innerHTML = '';
   scanBtn.disabled = true;
@@ -441,15 +521,30 @@ async function runBeaconDiscovery() {
 
     _beaconServers = servers;
 
+    // Auto-detect a Claude/LLM destination among discovered servers (like chronos)
+    const claude = detectClaudeTool(servers);
+    const selectedServer = claude ? claude.serverIndex : 0;
+
     serversDiv.innerHTML = servers.map((s, i) => `
-      <div class="beacon-server ${i === 0 ? 'selected' : ''}" onclick="selectBeaconServer(${i})" data-index="${i}">
+      <div class="beacon-server ${i === selectedServer ? 'selected' : ''}" onclick="selectBeaconServer(${i})" data-index="${i}">
         <div class="beacon-server-name">${escapeHtml(s.name)}</div>
         <div class="beacon-desc">${escapeHtml(s.description)}</div>
         <div class="beacon-url">${escapeHtml(s.url)}</div>
       </div>
     `).join('');
 
-    selectBeaconServer(0);
+    const claudeStatus = document.getElementById('beacon-claude-status');
+    if (claude) {
+      // Found Claude — pre-select its server, then its specific tool, and announce it.
+      selectBeaconServer(claude.serverIndex);
+      selectBeaconTool(claude.serverIndex, claude.toolIndex);
+      document.getElementById('beacon-claude-status-text').textContent =
+        `Claude connected via beacon — auto-selected ${claude.server.name} / ${claude.tool.name}`;
+      claudeStatus.classList.remove('hidden');
+    } else {
+      claudeStatus.classList.add('hidden');
+      selectBeaconServer(0);
+    }
   } catch (err) {
     showToast('Discovery failed: ' + err.message, 'error');
   } finally {
@@ -497,9 +592,19 @@ function selectBeaconTool(serverIndex, toolIndex) {
   document.getElementById('targetUrl').value = server.url;
   document.getElementById('authToken').value = '';
   document.getElementById('tool').value = tool.name;
-  document.getElementById('params').value = JSON.stringify(
-    generateParamsFromSchema(tool.inputSchema), null, 2
-  );
+
+  const generated = generateParamsFromSchema(tool.inputSchema);
+  const promptParam = findPromptParam(tool.inputSchema);
+  // For LLM-style tools, point the prompt param at {{template}} (resolved to the
+  // template text at send time) and seed the template field with the default.
+  if (promptParam) {
+    generated[promptParam] = '{{template}}';
+    document.getElementById('promptTemplate').value = DEFAULT_CLAUDE_PROMPT;
+  }
+  document.getElementById('params').value = JSON.stringify(generated, null, 2);
+
+  if (promptParam) showPromptWrapper();
+  else hidePromptWrapper();
 }
 
 // Detect which preset matches current config
@@ -548,52 +653,6 @@ function toggleAbout() {
   const header = document.querySelector('#about-card .card-header');
   content.classList.toggle('hidden');
   header.classList.toggle('collapsed');
-}
-
-// Send MCP server info through the configured MCP target
-async function sendMcpInfo() {
-  const btn = document.getElementById('send-mcp-info-btn');
-  const responseBox = document.getElementById('mcp-target-response');
-  const responseText = document.getElementById('mcp-target-response-text');
-
-  btn.disabled = true;
-  btn.textContent = 'Sending…';
-  responseBox.classList.add('hidden');
-
-  try {
-    const response = await fetch('/api/send-mcp-info', { method: 'POST' });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Failed to send');
-
-    if (result.response) {
-      responseText.textContent = result.response;
-      responseBox.classList.remove('hidden');
-    } else {
-      showToast('Sent — no response from target');
-    }
-  } catch (error) {
-    showToast('Failed to send: ' + error.message, 'error');
-  } finally {
-    btn.textContent = 'Send Config via MCP Target';
-    updateSendMcpInfoButton();
-  }
-}
-
-// Update the send button state based on MCP connection and last chat
-function updateSendMcpInfoButton() {
-  const btn = document.getElementById('send-mcp-info-btn');
-  const hint = document.getElementById('send-mcp-info-hint');
-  if (!btn) return;
-
-  const mcpConnected = currentStatus?.mcpClient?.connected;
-
-  if (!mcpConnected) {
-    btn.disabled = true;
-    hint.textContent = 'MCP target not connected — configure and connect it above first.';
-  } else {
-    btn.disabled = false;
-    hint.textContent = '';
-  }
 }
 
 // Load MCP server info

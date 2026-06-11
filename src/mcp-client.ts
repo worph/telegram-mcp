@@ -2,7 +2,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
-import { resolveTemplate } from "./template.js";
 import { TargetConfig } from "./types.js";
 
 /**
@@ -109,30 +108,6 @@ export class MCPClient {
       console.error(`Error calling tool ${toolName}:`, error);
       throw error;
     }
-  }
-
-  /**
-   * Send a text message through the configured tool, resolving the params
-   * template with {{text}} substituted — same path as a real Telegram message.
-   */
-  async sendText(text: string, permissionCallbackUrl?: string): Promise<unknown> {
-    // Generate a random chatId prefixed with "web-" so the permission router
-    // knows to route it to the Web UI instead of Telegram.
-    const webChatId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const params = resolveTemplate(this.config.params, {
-      text,
-      chatId: webChatId,
-      userId: "",
-      username: undefined,
-      firstName: "",
-      lastName: undefined,
-      messageId: 0,
-      date: Math.floor(Date.now() / 1000),
-      isBot: false,
-      languageCode: undefined,
-      permissionCallbackUrl,
-    }) as Record<string, unknown>;
-    return this.callTool(this.config.tool, params);
   }
 
   isConnected(): boolean {

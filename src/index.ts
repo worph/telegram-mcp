@@ -4,6 +4,7 @@ import { loadConfig, isPlaceholderConfig } from "./config.js";
 import { MCPClient } from "./mcp-client.js";
 import { MCPServer } from "./mcp-server.js";
 import { PermissionService, WebPermissionService } from "./permission-service.js";
+import { loadHistory } from "./history.js";
 
 import { createRequire } from "module";
 const _require = createRequire(import.meta.url);
@@ -14,6 +15,9 @@ async function main(): Promise<void> {
 
   let config = loadConfig();
   console.log("Config loaded");
+
+  // Load persisted per-chat message history (powers the get_chat_history tool)
+  loadHistory();
 
   const bot = new TelegramBot(config);
   const mcpClient = new MCPClient(config.target);
@@ -73,6 +77,7 @@ async function main(): Promise<void> {
         { name: "send_photo", description: "Send a photo to a Telegram chat", inputSchema: { type: "object", properties: { chatId: { type: "string" }, url: { type: "string" }, caption: { type: "string" } }, required: ["url"] } },
         { name: "echo", description: "Echo a message back — useful for testing the MCP connection", inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] } },
         { name: "mcp_info", description: "Send MCP server installation and connection information to a Telegram chat", inputSchema: { type: "object", properties: { chatId: { type: "string" } } } },
+        { name: "get_chat_history", description: "Retrieve recent messages from a Telegram conversation for added context", inputSchema: { type: "object", properties: { chatId: { type: "string" }, limit: { type: "number" } } } },
       ],
       port,
       listenPort: parseInt(process.env.DISCOVERY_PORT || "9099"),

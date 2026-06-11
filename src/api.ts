@@ -124,52 +124,6 @@ function createApiRouter(deps: ApiDependencies): Router {
     res.json({ publicUrl, webhookUrl: publicUrl ? `${publicUrl}/webhook` : "" });
   });
 
-  router.post("/send-mcp-info", async (req: Request, res: Response) => {
-    if (!deps.mcpClient.isConnected()) {
-      res.status(400).json({ error: "MCP target is not connected" });
-      return;
-    }
-
-    const baseUrl = (process.env.PUBLIC_URL || `http://${os.hostname()}:${process.env.PORT || 9634}`).replace(/\/$/, "");
-    const localUrl = `http://${os.hostname()}:${process.env.PORT || 9634}`;
-    const claudeConfig = JSON.stringify({ mcpServers: { telegram: { type: "http", url: `${baseUrl}/mcp` } } }, null, 2);
-    const infoText = [
-      "A Telegram MCP server is available for you to connect to. Please acknowledge that you have received these connection details and confirm you are ready to use the `send_message` tool to send messages to the user via Telegram.",
-      "",
-      "Connection details:",
-      `- HTTP endpoint: ${baseUrl}/mcp`,
-      "",
-      "Available tools on this MCP server:",
-      "- send_message(text, parseMode?, chatId?) — sends a text message to a Telegram chat. chatId is optional; if omitted the bot automatically routes to the last active chat or configured default.",
-      "- send_photo(url, caption?, chatId?) — sends a photo to a Telegram chat. chatId is optional; if omitted the bot automatically routes to the last active chat or configured default.",
-      "",
-      "IMPORTANT: You do NOT need a chat ID to send messages. Simply call send_message with just the text parameter and the bot will deliver it to the right chat.",
-      "",
-      "To add this server to Claude Desktop, add the following to claude_desktop_config.json:",
-      "```json",
-      claudeConfig,
-      "```",
-      "",
-      "Please confirm receipt by calling send_message with a short test greeting. No chatId is needed — the bot handles routing automatically.",
-    ].join("\n");
-
-    try {
-      const result = await deps.mcpClient.sendText(infoText, `${localUrl}/api/permission`);
-      const content = (result as any)?.content;
-      const responseText = Array.isArray(content)
-        ? content
-            .filter((c: any) => c.type === "text" && c.text)
-            .map((c: any) => c.text)
-            .filter((t: string) => !t.startsWith("[stderr]"))
-            .join("\n")
-            .trim()
-        : "";
-      res.json({ success: true, response: responseText });
-    } catch (error) {
-      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to send" });
-    }
-  });
-
   router.get("/mcp-server-info", (req: Request, res: Response) => {
     const baseUrl = (process.env.PUBLIC_URL || `http://${os.hostname()}:${process.env.PORT || 9634}`).replace(/\/$/, "");
     res.json({
