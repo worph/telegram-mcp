@@ -98,6 +98,19 @@ export interface SendPhotoParams {
   caption?: string;
 }
 
+export interface AskParams {
+  question: string;
+  chatId?: string;
+  timeoutSeconds?: number;
+  waitSeconds?: number;
+}
+
+export interface GetAnswerParams {
+  questionId?: string;
+  chatId?: string;
+  waitSeconds?: number;
+}
+
 // Permission request from claude-code-container
 export interface PermissionRequest {
   queryId: string;

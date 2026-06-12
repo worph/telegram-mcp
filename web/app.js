@@ -694,7 +694,11 @@ function selectBeaconTool(serverIndex, toolIndex) {
 
   document.getElementById('transport').value = 'http';
   document.getElementById('targetUrl').value = server.url;
-  document.getElementById('authToken').value = '';
+  // Servers announce their auth over local discovery (e.g. claude-code sends
+  // { type: 'bearer', token: ... }); carry it into the form or the saved
+  // target gets 401s against auth-enforcing MCP servers.
+  document.getElementById('authToken').value =
+    (server.auth && server.auth.type === 'bearer' && server.auth.token) ? server.auth.token : '';
   document.getElementById('tool').value = tool.name;
 
   const generated = generateParamsFromSchema(tool.inputSchema);

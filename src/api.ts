@@ -148,6 +148,7 @@ function createApiRouter(deps: ApiDependencies): Router {
       name: string;
       description: string;
       url: string;
+      auth?: { type: string; token?: string };
       tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
     }> = [];
     const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
@@ -159,7 +160,11 @@ function createApiRouter(deps: ApiDependencies): Router {
           servers.push({
             name: msg.name,
             description: msg.description || "",
-            url: `http://${rinfo.address}:${msg.port}/mcp`,
+            url: `http://${rinfo.address}:${msg.port}${msg.path || "/mcp"}`,
+            // Auth descriptor travels in the local announce (e.g. claude-code
+            // announces { type: "bearer", token: AUTH_PASSWORD }) — dropping it
+            // here causes mystery 401s when the target enforces bearer auth.
+            auth: msg.auth,
             tools: msg.tools || [],
           });
         }

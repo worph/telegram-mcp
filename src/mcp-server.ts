@@ -6,9 +6,20 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import express, { Request, Response, Router } from "express";
 import { TelegramBot } from "./bot.js";
-import { SendMessageParams, SendPhotoParams } from "./types.js";
+import { AskParams, GetAnswerParams, SendMessageParams, SendPhotoParams } from "./types.js";
 import { getMcpInfo } from "./mcp-info.js";
 import { getHistory } from "./history.js";
+import {
+  AskQuestionRecord,
+  MAX_QUESTION_TIMEOUT_SECONDS,
+  MAX_WAIT_SECONDS,
+  cancelQuestion,
+  createQuestion,
+  getLatestQuestion,
+  getQuestion,
+  setQuestionMessageId,
+  waitForAnswer,
+} from "./ask-service.js";
 
 export class MCPServer {
   private bot: TelegramBot;
@@ -24,6 +35,25 @@ export class MCPServer {
     const lastChatId = this.bot.getLastChatId();
     if (lastChatId) return lastChatId;
     throw new Error("Missing chatId: provide it in the tool call or set a default in telegram config");
+  }
+
+  private askResultText(record: AskQuestionRecord): string {
+    const out: Record<string, unknown> = {
+      questionId: record.questionId,
+      status: record.status,
+      chatId: record.chatId,
+      question: record.question,
+    };
+    if (record.status === "answered") {
+      out.answer = record.answer;
+      if (record.answeredBy) out.answeredBy = record.answeredBy;
+    } else if (record.status === "pending") {
+      out.expiresInSeconds = Math.max(Math.round((record.expiresAt - Date.now()) / 1000), 0);
+      out.hint = `Answer not received yet. Call get_answer with this questionId (waitSeconds up to ${MAX_WAIT_SECONDS} to long-poll) until status is "answered".`;
+    } else {
+      out.hint = "Question expired without an answer. Ask again if the information is still needed.";
+    }
+    return JSON.stringify(out, null, 2);
   }
 
   private createServer(): Server {
@@ -90,6 +120,56 @@ export class MCPServer {
                 },
               },
               required: ["url"],
+            },
+          },
+          {
+            name: "ask",
+            description:
+              "Ask the user a question via Telegram and collect their reply (human-in-the-loop). Sends the question and returns immediately with a questionId — the user's next reply in that chat is captured as the answer instead of being forwarded to the target MCP. Poll get_answer with the questionId until it is answered. Optionally set waitSeconds (max 240) to wait for a quick answer within this same call. If chatId is omitted, uses the configured default or the last active chat.",
+            inputSchema: {
+              type: "object" as const,
+              properties: {
+                question: {
+                  type: "string",
+                  description: "The question to ask the user",
+                },
+                chatId: {
+                  type: "string",
+                  description: "The chat ID to ask in (optional if default chatId is configured)",
+                },
+                timeoutSeconds: {
+                  type: "number",
+                  description: `How long the question stays open before expiring, in seconds (default and max ${MAX_QUESTION_TIMEOUT_SECONDS} = 24h)`,
+                },
+                waitSeconds: {
+                  type: "number",
+                  description: `Seconds to wait for an answer before this call returns (0-${MAX_WAIT_SECONDS}, default 0 = return immediately)`,
+                },
+              },
+              required: ["question"],
+            },
+          },
+          {
+            name: "get_answer",
+            description:
+              `Get the user's answer to a question previously created with ask. Set waitSeconds (max ${MAX_WAIT_SECONDS}) to long-poll: the call returns as soon as the answer arrives, or after waitSeconds if still pending. Keep calling until status is "answered" or "expired"; for waits of hours, check back periodically instead of holding one connection open. If questionId is omitted, the most recent question is used.`,
+            inputSchema: {
+              type: "object" as const,
+              properties: {
+                questionId: {
+                  type: "string",
+                  description: "The questionId returned by ask (optional — defaults to the most recent question)",
+                },
+                chatId: {
+                  type: "string",
+                  description: "When questionId is omitted, scope 'most recent question' to this chat",
+                },
+                waitSeconds: {
+                  type: "number",
+                  description: `Seconds to long-poll for the answer (0-${MAX_WAIT_SECONDS}, default 0 = return current status immediately)`,
+                },
+              },
+              required: [],
             },
           },
           {
@@ -176,6 +256,63 @@ export class MCPServer {
                 {
                   type: "text" as const,
                   text: `Photo sent to chat ${chatId}`,
+                },
+              ],
+            };
+          }
+
+          case "ask": {
+            const params = args as unknown as AskParams;
+            if (!params.question) {
+              throw new Error("Missing required parameter: question");
+            }
+            const chatId = this.resolveChatId(params.chatId);
+            const record = createQuestion(chatId, params.question, params.timeoutSeconds);
+            let messageId: number;
+            try {
+              messageId = await this.bot.sendQuestion(chatId, params.question);
+            } catch (err) {
+              cancelQuestion(record.questionId);
+              throw err;
+            }
+            setQuestionMessageId(record.questionId, messageId);
+            const result =
+              params.waitSeconds && params.waitSeconds > 0
+                ? await waitForAnswer(record.questionId, params.waitSeconds)
+                : getQuestion(record.questionId);
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: this.askResultText(result ?? record),
+                },
+              ],
+            };
+          }
+
+          case "get_answer": {
+            const params = args as unknown as GetAnswerParams;
+            let questionId = params.questionId;
+            if (!questionId) {
+              const latest = getLatestQuestion(params.chatId);
+              if (!latest) {
+                throw new Error(
+                  params.chatId ? `No questions found for chat ${params.chatId}` : "No questions found"
+                );
+              }
+              questionId = latest.questionId;
+            }
+            const record = await waitForAnswer(questionId, params.waitSeconds ?? 0);
+            if (!record) {
+              throw new Error(
+                `Unknown questionId: ${questionId} (questions are purged about an hour after they expire)`
+              );
+            }
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: this.askResultText(record),
                 },
               ],
             };

@@ -8,6 +8,7 @@ import { MCPClient } from "./mcp-client.js";
 import { PermissionService } from "./permission-service.js";
 import { saveConfig, isPlaceholderConfig } from "./config.js";
 import { recordMessage } from "./history.js";
+import { tryResolveFromMessage } from "./ask-service.js";
 
 // Characters that must be escaped in MarkdownV2 outside of code blocks
 const MD_SPECIAL = /([_*\[\]()~`>#+\-=|{}.!\\])/g;
@@ -424,6 +425,25 @@ export class TelegramBot {
       date: message.date,
     });
 
+    // If this message answers a pending `ask` question, it is consumed by the
+    // ask flow instead of being forwarded to the target MCP.
+    if (
+      tryResolveFromMessage(String(message.chat.id), message.text, {
+        replyToMessageId: message.reply_to_message?.message_id,
+        answeredBy: messageContext.username || messageContext.firstName,
+      })
+    ) {
+      console.log(`Message consumed as answer to a pending ask question`);
+      // Acknowledge so the user knows the answer was captured even if the
+      // asking LLM is not actively polling right now.
+      try {
+        await ctx.react("👍");
+      } catch {
+        await ctx.reply("✅").catch(() => {});
+      }
+      return;
+    }
+
     if (!this.mcpClient) {
       console.warn("MCP client not set, skipping tool call");
       return;
@@ -516,6 +536,26 @@ export class TelegramBot {
       text,
       date: Math.floor(Date.now() / 1000),
     });
+  }
+
+  /**
+   * Send a question with ForceReply so Telegram clients prompt the user for
+   * an answer. Returns the Telegram message id, used to match the reply.
+   */
+  async sendQuestion(chatId: string, question: string): Promise<number> {
+    if (!this.bot) {
+      throw new Error("Bot not running");
+    }
+
+    const msg = await this.bot.api.sendMessage(chatId, `❓ ${question}`, {
+      reply_markup: { force_reply: true, input_field_placeholder: "Type your answer…" },
+    });
+    recordMessage(chatId, {
+      role: "assistant",
+      text: `❓ ${question}`,
+      date: Math.floor(Date.now() / 1000),
+    });
+    return msg.message_id;
   }
 
   async sendPhoto(chatId: string, url: string, caption?: string): Promise<void> {

@@ -184,6 +184,45 @@ Send a photo to a Telegram chat.
 }
 ```
 
+### `ask`
+
+Ask the user a question via Telegram and collect their reply (human-in-the-loop). The question is sent with ForceReply and the call returns immediately with a `questionId`; the user's reply is captured as the answer instead of being forwarded to the target MCP.
+
+```typescript
+{
+  question: string;        // The question to ask
+  chatId?: string;         // Target chat ID (optional — defaults to last active chat)
+  timeoutSeconds?: number; // How long the question stays open (default and max 86400 = 24h)
+  waitSeconds?: number;    // Wait up to 240s for a quick answer within this same call (default 0)
+}
+```
+
+### `get_answer`
+
+Fetch (or long-poll for) the answer to a question created with `ask`.
+
+```typescript
+{
+  questionId?: string;  // From ask (optional — defaults to the most recent question)
+  chatId?: string;      // Scope "most recent question" to a chat when questionId is omitted
+  waitSeconds?: number; // Long-poll up to 240s per call (default 0 = return current status)
+}
+```
+
+Both tools return JSON: `{ questionId, status: "pending" | "answered" | "expired", question, answer?, answeredBy?, expiresInSeconds? }`.
+
+#### How the answer is matched
+
+The user's reply is matched to a pending question by the Telegram reply (ForceReply makes clients target the question message automatically). A plain message (not a reply) answers the **oldest** pending question in the chat. A reply to an unrelated message is forwarded to the target MCP as usual. Captured answers are acknowledged with a 👍 reaction.
+
+#### Waiting patterns (e.g. Claude Code)
+
+No long-open connection is needed — each call stays under typical MCP client and reverse-proxy timeouts, so no `MCP_TOOL_TIMEOUT` tuning is required:
+
+- **Answer expected within minutes**: call `ask`, then loop on `get_answer(questionId, waitSeconds: 240)` until `status` is `"answered"`.
+- **Answer may take hours**: poll `get_answer` periodically (e.g. from a `/loop` or scheduled check) — answers are retained until the question's expiry (plus ~1h grace), so a client that lost its connection or session can recover the answer later.
+- Questions expire after `timeoutSeconds` (default 24h); pending questions do not survive a server restart.
+
 ### `echo`
 
 Echo a message back (useful for testing).
@@ -214,6 +253,8 @@ telegram-mcp/
 │   ├── mcp-server.ts          # MCP server exposing Telegram tools (Streamable HTTP)
 │   ├── mcp-client.ts          # MCP client for calling target LLM
 │   ├── mcp-info.ts            # MCP connection info generator
+│   ├── ask-service.ts         # Pending-question registry for ask/get_answer
+│   ├── history.ts             # Rolling per-chat message history store
 │   ├── api.ts                 # Express app with REST API for Web UI
 │   ├── config.ts              # Configuration management
 │   ├── permission-service.ts  # Telegram & Web permission flows

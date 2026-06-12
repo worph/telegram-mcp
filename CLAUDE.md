@@ -36,10 +36,11 @@ Bidirectional Telegram-MCP bridge: acts as both an **MCP server** (exposing Tele
 
 - **`src/index.ts`** — Entry point. Wires together bot, MCP client/server, permission services, Express API. Handles graceful shutdown and restart logic.
 - **`src/bot.ts`** — grammY bot with commands (`/start`, `/new`, `/mcp`, `/revoke`). `handleTextMessage()` is fire-and-forget (not awaited) to avoid deadlock with permission callback queries. Includes MarkdownV2 escaping for replies.
-- **`src/mcp-server.ts`** — Exposes tools (`send_message`, `send_photo`, `echo`, `mcp_info`) via stateless Streamable HTTP POST (`/mcp`). Each request gets its own `Server` instance.
+- **`src/mcp-server.ts`** — Exposes tools (`send_message`, `send_photo`, `ask`, `get_answer`, `echo`, `mcp_info`, `get_chat_history`) via stateless Streamable HTTP POST (`/mcp`). Each request gets its own `Server` instance.
 - **`src/mcp-client.ts`** — Connects to the target MCP server via Streamable HTTP transport. Wraps transport to suppress `notifications/initialized` errors. Auto-reconnects on `callTool()` if disconnected. 3-minute timeout on tool calls to allow for permission prompts.
 - **`src/api.ts`** — Express app factory. Mounts MCP router at `/mcp` **before** JSON middleware (MCP needs raw body). REST endpoints under `/api/` for config, status, restart, permission handling, and MCP server info.
 - **`src/permission-service.ts`** — Two services: `PermissionService` (Telegram inline keyboard flow) and `WebPermissionService` (SSE-based browser flow with CSRF protection). Permission routing is based on `chatId`: empty → web, otherwise → Telegram.
+- **`src/ask-service.ts`** — In-memory registry for human-in-the-loop questions (`ask`/`get_answer` tools): question lifecycle (pending → answered/expired), long-poll waiters, 24h max TTL, purge ~1h after expiry.
 - **`src/template.ts`** — Recursively resolves `{{variable}}` placeholders in config params against `MessageContext`.
 - **`src/types.ts`** — Zod schemas for config validation (`ConfigSchema`, `TelegramConfigSchema`, `TargetConfigSchema`) and TypeScript interfaces.
 - **`src/mcp-info.ts`** — Generates Markdown-formatted MCP connection info text.
@@ -61,6 +62,10 @@ Permissions arrive as plain `POST /api/permission` requests (not MCP tool calls)
 2. If `chatId` is present → Telegram inline keyboard (Allow/Deny/Always Allow); if empty → Web SSE stream
 3. User decision resolves the pending HTTP response as `{ queryId, decision, timedOut }`
 4. "Always Allow" persists in-memory per tool name; `/revoke` command clears the allowlist
+
+### Ask Flow (human-in-the-loop questions)
+
+The `ask` tool sends a ForceReply question to Telegram and returns a `questionId` immediately (optionally waiting up to 240s via `waitSeconds`). In `bot.ts`, `handleTextMessage()` checks `tryResolveFromMessage()` **before** forwarding to the target MCP: a reply targeting the question message (or, for plain messages, the oldest pending question in the chat) is consumed as the answer and acknowledged with a 👍 reaction instead of being forwarded. Clients poll `get_answer` (long-poll capped at 240s per call, so no client timeout tuning is needed) until `answered`/`expired`. Questions expire after `timeoutSeconds` (default/max 24h); answered/expired records are purged ~1h after expiry; state is in-memory and does not survive restarts.
 
 ### Important Implementation Details
 
