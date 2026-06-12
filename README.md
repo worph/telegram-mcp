@@ -93,6 +93,31 @@ Access the Web UI at `http://localhost:9634` to configure:
 | Mode | `polling` (simple) or `webhook` (production) |
 | Webhook URL | Public URL for webhook mode |
 
+### Access Control
+
+The bot is **private by default**: only users in the allowed list can interact
+with it (messages, commands, permission buttons), in direct or group chats.
+Configure it at the top of the MCP Target card in the Web UI, or in `config.json`:
+
+```json
+{
+  "telegram": {
+    "accessMode": "private",
+    "allowedUsers": ["123456789", "@somename"]
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `accessMode` | `private` (default) or `public` (anyone can use the bot) |
+| `allowedUsers` | Numeric user IDs or usernames (with or without `@`, case-insensitive) |
+
+Unauthorized users messaging the bot directly get a reply containing their
+user ID, so you can onboard yourself easily: message the bot, then paste the
+ID into the allowed list. User IDs are more secure than usernames, since
+usernames can be changed or reassigned.
+
 ### MCP Target Settings
 
 | Field | Description |

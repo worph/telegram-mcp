@@ -14,6 +14,8 @@ const DEFAULT_CONFIG: Config = {
   telegram: {
     botToken: "000000000:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     mode: "polling",
+    accessMode: "private",
+    allowedUsers: [],
   },
   target: {
     transport: "http",

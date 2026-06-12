@@ -114,6 +114,9 @@ async function loadConfig() {
     document.getElementById('promptTemplate').value = currentConfig.target.promptTemplate || '';
     refreshPromptWrapperFromParams();
 
+    // Populate access control
+    renderAccessControl();
+
     // Update MCP display
     updateMCPDisplay();
 
@@ -150,6 +153,8 @@ async function connectBot() {
       telegram: {
         botToken: token,
         mode: 'polling',
+        accessMode: currentConfig?.telegram?.accessMode || 'private',
+        allowedUsers: currentConfig?.telegram?.allowedUsers || [],
       },
       target: currentConfig?.target || {
         transport: 'http',
@@ -199,6 +204,8 @@ async function saveTelegram() {
     const telegram = {
       botToken: document.getElementById('botTokenEdit').value,
       mode: mode,
+      accessMode: currentConfig.telegram.accessMode || 'private',
+      allowedUsers: currentConfig.telegram.allowedUsers || [],
     };
     if (chatId) {
       telegram.chatId = chatId;
@@ -229,6 +236,103 @@ async function saveTelegram() {
 
   } catch (error) {
     showToast('Failed to save: ' + error.message, 'error');
+  }
+}
+
+// --- Access control (public/private + allowed users) ---
+
+function renderAccessControl() {
+  const mode = currentConfig?.telegram?.accessMode || 'private';
+  const users = currentConfig?.telegram?.allowedUsers || [];
+
+  document.getElementById('access-public-btn').classList.toggle('active', mode === 'public');
+  document.getElementById('access-private-btn').classList.toggle('active', mode === 'private');
+
+  const hint = document.getElementById('access-hint');
+  const section = document.getElementById('allowed-users-section');
+
+  if (mode === 'public') {
+    hint.textContent = 'Anyone who finds the bot can message it and trigger the MCP target.';
+    section.classList.add('hidden');
+    return;
+  }
+
+  hint.textContent = 'Only the users below can use the bot (direct or group chats). Others get a reply with their user ID.';
+  section.classList.remove('hidden');
+
+  const chips = document.getElementById('user-chips');
+  chips.innerHTML = '';
+  if (users.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'user-chips-empty';
+    empty.textContent = '⚠ No users allowed yet — nobody can use the bot. Message the bot to get your user ID, then add it here.';
+    chips.appendChild(empty);
+  }
+  users.forEach((entry) => {
+    const chip = document.createElement('span');
+    chip.className = 'user-chip';
+    const label = document.createElement('span');
+    label.textContent = /^\d+$/.test(entry) ? entry : (entry.startsWith('@') ? entry : '@' + entry);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = 'Remove';
+    remove.onclick = () => removeAllowedUser(entry);
+    chip.appendChild(label);
+    chip.appendChild(remove);
+    chips.appendChild(chip);
+  });
+}
+
+async function setAccessMode(mode) {
+  if ((currentConfig?.telegram?.accessMode || 'private') === mode) return;
+  currentConfig.telegram.accessMode = mode;
+  await saveAccessConfig(mode === 'public' ? 'Bot is now public' : 'Bot is now private');
+}
+
+async function addAllowedUser() {
+  const input = document.getElementById('allowed-user-input');
+  const value = input.value.trim();
+  if (!value) return;
+  if (!/^(@?[A-Za-z][A-Za-z0-9_]{0,31}|\d+)$/.test(value)) {
+    showToast('Enter a numeric user ID or a @username', 'error');
+    return;
+  }
+  const users = currentConfig.telegram.allowedUsers || [];
+  const normalized = value.replace(/^@/, '').toLowerCase();
+  if (users.some(u => u.replace(/^@/, '').toLowerCase() === normalized)) {
+    showToast('Already in the list', 'error');
+    return;
+  }
+  currentConfig.telegram.allowedUsers = [...users, value];
+  input.value = '';
+  await saveAccessConfig('User added');
+}
+
+async function removeAllowedUser(entry) {
+  currentConfig.telegram.allowedUsers =
+    (currentConfig.telegram.allowedUsers || []).filter(u => u !== entry);
+  await saveAccessConfig('User removed');
+}
+
+async function saveAccessConfig(message) {
+  renderAccessControl();
+  try {
+    const response = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        telegram: currentConfig.telegram,
+        target: currentConfig.target,
+        server: currentConfig.server || { port: 9634 },
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to save');
+    showToast(message);
+  } catch (error) {
+    showToast('Failed to save: ' + error.message, 'error');
+    await loadConfig(); // re-sync UI with what the server actually has
   }
 }
 

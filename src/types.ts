@@ -6,6 +6,10 @@ export const TelegramConfigSchema = z.object({
   chatId: z.string().optional(),
   mode: z.enum(["polling", "webhook"]).default(process.env.PUBLIC_URL ? "webhook" : "polling"),
   webhookUrl: z.string().url().optional(),
+  // Access control. "private" (default): only users in allowedUsers may use the bot.
+  accessMode: z.enum(["public", "private"]).default("private"),
+  // Numeric user IDs or usernames (with or without @), case-insensitive.
+  allowedUsers: z.array(z.string()).default([]),
 }).refine(
   (data) => data.mode !== "webhook" || !!data.webhookUrl || !!process.env.PUBLIC_URL,
   { message: "webhookUrl is required when mode is 'webhook' (or set PUBLIC_URL env)", path: ["webhookUrl"] }

@@ -120,8 +120,11 @@ export class TelegramBot {
         const resp = await fetch(
           `https://api.telegram.org/bot${this.config.telegram.botToken}/getUpdates?limit=1&offset=-1`
         );
-        const data = await resp.json() as { ok: boolean; result: Array<{ message?: { chat: { id: number } } }> };
-        const chatId = data.result?.[0]?.message?.chat?.id;
+        const data = await resp.json() as { ok: boolean; result: Array<{ message?: { chat: { id: number }; from?: { id: number; username?: string } } }> };
+        const pending = data.result?.[0]?.message;
+        const chatId = pending && this.isUserAllowed(pending.from?.id, pending.from?.username)
+          ? pending.chat.id
+          : undefined;
         if (chatId) {
           this.config.telegram.chatId = String(chatId);
           this.status.lastChatId = String(chatId);
@@ -138,6 +141,26 @@ export class TelegramBot {
     }
 
     this.bot = new Bot(this.config.telegram.botToken);
+
+    // Access control: in private mode only allowed users may interact with the
+    // bot (messages, commands, permission buttons), in solo or group chats.
+    this.bot.use(async (ctx, next) => {
+      if (this.isUserAllowed(ctx.from?.id, ctx.from?.username)) {
+        return next();
+      }
+      if (ctx.callbackQuery) {
+        await ctx.answerCallbackQuery({ text: "Not authorized" }).catch(() => {});
+        return;
+      }
+      // Reply with the user ID in direct chats so the owner can onboard
+      // themselves; stay silent in groups to avoid spamming members.
+      if (ctx.message && ctx.chat?.type === "private") {
+        await ctx.reply(
+          `⛔ This bot is private.\nYour user ID: ${ctx.from?.id}\n` +
+          `Ask the bot owner to add you to the allowed users list.`
+        ).catch(() => {});
+      }
+    });
 
     // Handle /mcp command - show connection status
     this.bot.command("mcp", async (ctx) => {
@@ -334,6 +357,25 @@ export class TelegramBot {
 
   updateConfig(config: Config): void {
     this.config = config;
+  }
+
+  /**
+   * Check whether a Telegram user may use the bot. Public mode allows
+   * everyone; private mode requires a match in allowedUsers, where entries
+   * are numeric user IDs or usernames (with or without @, case-insensitive).
+   */
+  private isUserAllowed(userId?: number | string, username?: string): boolean {
+    if (this.config.telegram.accessMode === "public") {
+      return true;
+    }
+    const uid = userId !== undefined ? String(userId) : undefined;
+    const uname = username?.toLowerCase();
+    return (this.config.telegram.allowedUsers ?? []).some((entry) => {
+      const e = entry.trim();
+      if (!e) return false;
+      if (/^\d+$/.test(e)) return e === uid;
+      return e.replace(/^@/, "").toLowerCase() === uname;
+    });
   }
 
   private async handleTextMessage(ctx: Context): Promise<void> {

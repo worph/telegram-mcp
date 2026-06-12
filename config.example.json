@@ -1,7 +1,9 @@
 {
   "telegram": {
     "botToken": "000000000:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-    "mode": "polling"
+    "mode": "polling",
+    "accessMode": "private",
+    "allowedUsers": []
   },
   "target": {
     "transport": "http",

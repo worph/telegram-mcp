@@ -48,7 +48,7 @@ Bidirectional Telegram-MCP bridge: acts as both an **MCP server** (exposing Tele
 ### Configuration
 
 `config.json` (validated by Zod schemas in `types.ts`):
-- `telegram` — Bot token, mode (`polling`|`webhook`), optional `webhookUrl`
+- `telegram` — Bot token, mode (`polling`|`webhook`), optional `webhookUrl`, `accessMode` (`private` default | `public`), `allowedUsers` (user IDs or usernames; enforced by a grammY middleware in `bot.ts` that gates all updates, and by the startup chatId-recovery logic)
 - `target` — MCP client settings: transport (`http`), url, tool name, parameter mappings with `{{variable}}` templates
 - `server` — Web UI port (default 9634)
 
