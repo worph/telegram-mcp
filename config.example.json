@@ -15,6 +15,20 @@
       "username": "{{username}}"
     }
   },
+  "chatTargets": [
+    {
+      "chatIds": ["123456789"],
+      "accessMode": "private",
+      "allowedUsers": ["123456789"],
+      "transport": "http",
+      "url": "http://other-mcp:9634/mcp",
+      "tool": "query",
+      "params": {
+        "prompt": "{{text}}",
+        "chatId": "{{chatId}}"
+      }
+    }
+  ],
   "server": {
     "port": 9634
   }

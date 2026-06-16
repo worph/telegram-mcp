@@ -7,14 +7,14 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { TelegramBot } from "./bot.js";
 import { getMaskedConfig, loadConfig, saveConfig, validateConfig } from "./config.js";
-import { MCPClient } from "./mcp-client.js";
+import { MCPClientPool } from "./mcp-client.js";
 import { MCPServer } from "./mcp-server.js";
 import { PermissionService, WebPermissionService } from "./permission-service.js";
 import { Config, HandlePermissionParams, WebPermissionResolveBody } from "./types.js";
 
 export interface ApiDependencies {
   bot: TelegramBot;
-  mcpClient: MCPClient;
+  mcpClient: MCPClientPool;
   mcpServer: MCPServer;
   permissionService: PermissionService;
   webPermissionService: WebPermissionService;
@@ -83,7 +83,7 @@ function createApiRouter(deps: ApiDependencies): Router {
       saveConfig(newConfig);
 
       deps.bot.updateConfig(newConfig);
-      deps.mcpClient.updateConfig(newConfig.target);
+      deps.mcpClient.updateConfig(newConfig);
 
       res.json({ success: true });
     } catch (error) {

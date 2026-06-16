@@ -4,7 +4,7 @@ import * as os from "os";
 import { RequestHandler } from "express";
 import { BotStatus, ButtonGrid, Config, MessageContext } from "./types.js";
 import { createMessageContext, resolveTemplate } from "./template.js";
-import { MCPClient } from "./mcp-client.js";
+import { MCPClientPool } from "./mcp-client.js";
 import { PermissionService } from "./permission-service.js";
 import { saveConfig, isPlaceholderConfig } from "./config.js";
 import { recordMessage } from "./history.js";
@@ -111,7 +111,7 @@ function toInlineKeyboard(rows: ButtonGrid): InlineKeyboard {
 export class TelegramBot {
   private bot: Bot | null = null;
   private config: Config;
-  private mcpClient: MCPClient | null = null;
+  private mcpClient: MCPClientPool | null = null;
   private permissionService: PermissionService | null = null;
   private status: BotStatus = { running: false };
   private isShuttingDown = false;
@@ -124,7 +124,7 @@ export class TelegramBot {
     this.config = config;
   }
 
-  setMCPClient(client: MCPClient): void {
+  setMCPClient(client: MCPClientPool): void {
     this.mcpClient = client;
   }
 
@@ -175,8 +175,11 @@ export class TelegramBot {
 
     // Access control: in private mode only allowed users may interact with the
     // bot (messages, commands, permission buttons), in solo or group chats.
+    // Access resolves per chat — a matching per-chat target card supplies its
+    // own access rules, otherwise the global telegram access applies.
     this.bot.use(async (ctx, next) => {
-      if (this.isUserAllowed(ctx.from?.id, ctx.from?.username)) {
+      const access = this.resolveAccess(ctx.chat?.id);
+      if (this.isUserAllowed(ctx.from?.id, ctx.from?.username, access)) {
         return next();
       }
       if (ctx.callbackQuery) {
@@ -199,11 +202,18 @@ export class TelegramBot {
         await ctx.reply("MCP client not configured.");
         return;
       }
-      const connected = this.mcpClient.isConnected();
-      const { url, tool } = this.mcpClient.getTargetInfo();
+      // Resolve the target this specific chat routes to (a chatTargets override
+      // or the catch-all default), so /mcp reflects where *this* chat goes.
+      const { client } = this.mcpClient.resolve(ctx.chat.id);
+      const connected = client.isConnected();
+      const { url, tool } = client.getTargetInfo();
+      const isOverride = this.config.chatTargets.some((t) =>
+        t.chatIds.map(String).includes(String(ctx.chat.id))
+      );
+      const routing = isOverride ? "per-chat target" : "default target";
       const status = connected ? "🟢 Connected" : "🔴 Disconnected";
       await ctx.reply(
-        `*MCP Status*\n\n${status}\n\n*Endpoint:* \`${url}\`\n*Tool:* \`${tool}\``,
+        `*MCP Status*\n\n${status}\n\n*Endpoint:* \`${url}\`\n*Tool:* \`${tool}\`\n*Routing:* ${routing}`,
         { parse_mode: "Markdown" }
       );
     });
@@ -407,17 +417,44 @@ export class TelegramBot {
   }
 
   /**
-   * Check whether a Telegram user may use the bot. Public mode allows
-   * everyone; private mode requires a match in allowedUsers, where entries
-   * are numeric user IDs or usernames (with or without @, case-insensitive).
+   * Resolve the access rules that apply to a chat: the first per-chat target
+   * card whose chatIds lists the chat (and that defines its own access), else
+   * the global telegram access.
    */
-  private isUserAllowed(userId?: number | string, username?: string): boolean {
-    if (this.config.telegram.accessMode === "public") {
+  private resolveAccess(
+    chatId?: number | string
+  ): { accessMode: "public" | "private"; allowedUsers: string[] } {
+    if (chatId !== undefined) {
+      const id = String(chatId);
+      const card = this.config.chatTargets.find((t) => t.chatIds.map(String).includes(id));
+      if (card && card.accessMode !== undefined) {
+        return { accessMode: card.accessMode, allowedUsers: card.allowedUsers ?? [] };
+      }
+    }
+    return {
+      accessMode: this.config.telegram.accessMode,
+      allowedUsers: this.config.telegram.allowedUsers ?? [],
+    };
+  }
+
+  /**
+   * Check whether a Telegram user may use the bot under the given access rules
+   * (defaults to the global telegram access). Public mode allows everyone;
+   * private mode requires a match in allowedUsers, where entries are numeric
+   * user IDs or usernames (with or without @, case-insensitive).
+   */
+  private isUserAllowed(
+    userId?: number | string,
+    username?: string,
+    access?: { accessMode: "public" | "private"; allowedUsers: string[] }
+  ): boolean {
+    const rules = access ?? this.resolveAccess();
+    if (rules.accessMode === "public") {
       return true;
     }
     const uid = userId !== undefined ? String(userId) : undefined;
     const uname = username?.toLowerCase();
-    return (this.config.telegram.allowedUsers ?? []).some((entry) => {
+    return rules.allowedUsers.some((entry) => {
       const e = entry.trim();
       if (!e) return false;
       if (/^\d+$/.test(e)) return e === uid;
@@ -567,16 +604,20 @@ export class TelegramBot {
       return;
     }
 
+    // Pick the target for this chat: a per-chat override if one lists this
+    // chat, otherwise the catch-all default.
+    const { client, target } = this.mcpClient.resolve(chatId);
+
     try {
       // Resolve the prompt template first (expanding its own {{vars}}) and expose
       // it as {{template}} so params reference the text once instead of inlining it.
-      const promptTemplate = this.config.target.promptTemplate;
+      const promptTemplate = target.promptTemplate;
       messageContext.template = promptTemplate
         ? (resolveTemplate(promptTemplate, messageContext) as string)
         : messageContext.text;
 
       const resolvedParams = resolveTemplate(
-        this.config.target.params,
+        target.params,
         messageContext
       ) as Record<string, unknown>;
 
@@ -586,7 +627,7 @@ export class TelegramBot {
         this.newSessionChats.delete(chatId);
       }
 
-      console.log(`Calling MCP tool: ${this.config.target.tool}`);
+      console.log(`Calling MCP tool: ${target.tool} (${target.url})`);
 
       // Show "typing..." indicator while waiting for the response
       const typingInterval = setInterval(async () => {
@@ -599,8 +640,8 @@ export class TelegramBot {
 
       let result: unknown;
       try {
-        result = await this.mcpClient.callTool(
-          this.config.target.tool,
+        result = await client.callTool(
+          target.tool,
           resolvedParams as Record<string, unknown>
         );
       } finally {

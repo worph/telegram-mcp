@@ -39,7 +39,7 @@ Both text messages and button taps go through the same `dispatchToTarget()` path
 - **`src/index.ts`** — Entry point. Wires together bot, MCP client/server, permission services, Express API. Handles graceful shutdown and restart logic.
 - **`src/bot.ts`** — grammY bot with commands (`/start`, `/new`, `/mcp`, `/revoke`). `handleTextMessage()` is fire-and-forget (not awaited) to avoid deadlock with permission callback queries. Includes MarkdownV2 escaping for replies.
 - **`src/mcp-server.ts`** — Exposes tools (`send_message`, `edit_message`, `send_photo`, `ask`, `get_answer`, `echo`, `mcp_info`, `get_chat_history`) via stateless Streamable HTTP POST (`/mcp`). Each request gets its own `Server` instance. `send_message` accepts an optional `buttons` inline keyboard and returns the `messageId`; `edit_message` updates a sent message's text/buttons (omit `buttons` to strip them).
-- **`src/mcp-client.ts`** — Connects to the target MCP server via Streamable HTTP transport. Wraps transport to suppress `notifications/initialized` errors. Auto-reconnects on `callTool()` if disconnected. 3-minute timeout on tool calls to allow for permission prompts.
+- **`src/mcp-client.ts`** — `MCPClient` connects to a target MCP server via Streamable HTTP transport (wraps transport to suppress `notifications/initialized` errors, auto-reconnects on `callTool()`, 3-minute timeout for permission prompts). `MCPClientPool` holds one `MCPClient` per target (default + each `chatTargets` entry) and `resolve(chatId)` picks the right one; the bot calls it on every incoming message/tap.
 - **`src/api.ts`** — Express app factory. Mounts MCP router at `/mcp` **before** JSON middleware (MCP needs raw body). REST endpoints under `/api/` for config, status, restart, permission handling, and MCP server info.
 - **`src/permission-service.ts`** — Two services: `PermissionService` (Telegram inline keyboard flow) and `WebPermissionService` (SSE-based browser flow with CSRF protection). Permission routing is based on `chatId`: empty → web, otherwise → Telegram.
 - **`src/ask-service.ts`** — In-memory registry for human-in-the-loop questions (`ask`/`get_answer` tools): question lifecycle (pending → answered/expired), long-poll waiters, 24h max TTL, purge ~1h after expiry.
@@ -52,7 +52,8 @@ Both text messages and button taps go through the same `dispatchToTarget()` path
 
 `config.json` (validated by Zod schemas in `types.ts`):
 - `telegram` — Bot token, mode (`polling`|`webhook`), optional `webhookUrl`, `accessMode` (`private` default | `public`), `allowedUsers` (user IDs or usernames; enforced by a grammY middleware in `bot.ts` that gates all updates, and by the startup chatId-recovery logic)
-- `target` — MCP client settings: transport (`http`), url, tool name, parameter mappings with `{{variable}}` templates
+- `target` — default (catch-all) MCP client settings: transport (`http`), url, tool name, parameter mappings with `{{variable}}` templates
+- `chatTargets` — optional array of per-chat target overrides. Each entry is a full `target` (its own url/tool/params/authToken/promptTemplate) plus a `chatIds: string[]` selector. `MCPClientPool.resolve(chatId)` returns the first entry whose `chatIds` lists the chat, else the catch-all `target`. Lets different chats route to different MCP servers (or the same server with different config). The Web UI edits this as a JSON array in the MCP edit form; UI saves preserve it.
 - `server` — Web UI port (default 9634)
 
 The Web UI allows editing config at runtime. `POST /api/restart` reloads config and reconnects both bot and MCP client.

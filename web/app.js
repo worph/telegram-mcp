@@ -2,7 +2,6 @@
 let currentConfig = null;
 let currentStatus = null;
 let botRunning = false;
-let mcpEditVisible = false;
 let csrfToken = null;
 
 // DOM elements
@@ -14,12 +13,7 @@ const mcpStatus = document.getElementById('mcp-status');
 const mcpStatusText = document.getElementById('mcp-status-text');
 const mcpSetup = document.getElementById('mcp-setup');
 const mcpConfig = document.getElementById('mcp-config');
-const mcpEditForm = document.getElementById('mcp-edit-form');
 const botUsername = document.getElementById('bot-username');
-const flowToolName = document.getElementById('flow-tool-name');
-const mcpToolDisplay = document.getElementById('mcp-tool-display');
-const mcpUrlDisplay = document.getElementById('mcp-url-display');
-const editBtnText = document.getElementById('edit-btn-text');
 
 // Toast notification
 function showToast(message, type = 'success') {
@@ -104,21 +98,9 @@ async function loadConfig() {
     document.getElementById('webhookUrl').value = webhookUrlValue;
     toggleWebhookUrl();
 
-    // Populate MCP form
-    document.getElementById('transport').value = currentConfig.target.transport;
-    document.getElementById('targetUrl').value = currentConfig.target.url;
-    document.getElementById('authToken').value = currentConfig.target.authToken || '';
-    document.getElementById('tool').value = currentConfig.target.tool;
-    document.getElementById('params').value = JSON.stringify(currentConfig.target.params, null, 2);
-    document.getElementById('preset').value = detectPreset(currentConfig.target);
-    document.getElementById('promptTemplate').value = currentConfig.target.promptTemplate || '';
-    refreshPromptWrapperFromParams();
-
-    // Populate access control
-    renderAccessControl();
-
-    // Update MCP display
-    updateMCPDisplay();
+    // Build the unified target models and render every card (default + per-chat)
+    buildModels();
+    renderAllTargets();
 
   } catch (error) {
     showToast('Failed to load config: ' + error.message, 'error');
@@ -166,6 +148,7 @@ async function connectBot() {
           username: '{{username}}',
         },
       },
+      chatTargets: currentConfig?.chatTargets || [],
       server: { port: 9634 },
     };
 
@@ -216,6 +199,7 @@ async function saveTelegram() {
     const config = {
       telegram: telegram,
       target: currentConfig.target,
+      chatTargets: currentConfig.chatTargets || [],
       server: { port: 9634 },
     };
 
@@ -239,166 +223,6 @@ async function saveTelegram() {
   }
 }
 
-// --- Access control (public/private + allowed users) ---
-
-function renderAccessControl() {
-  const mode = currentConfig?.telegram?.accessMode || 'private';
-  const users = currentConfig?.telegram?.allowedUsers || [];
-
-  document.getElementById('access-public-btn').classList.toggle('active', mode === 'public');
-  document.getElementById('access-private-btn').classList.toggle('active', mode === 'private');
-
-  const hint = document.getElementById('access-hint');
-  const section = document.getElementById('allowed-users-section');
-
-  if (mode === 'public') {
-    hint.textContent = 'Anyone who finds the bot can message it and trigger the MCP target.';
-    section.classList.add('hidden');
-    return;
-  }
-
-  hint.textContent = 'Only the users below can use the bot (direct or group chats). Others get a reply with their user ID.';
-  section.classList.remove('hidden');
-
-  const chips = document.getElementById('user-chips');
-  chips.innerHTML = '';
-  if (users.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'user-chips-empty';
-    empty.textContent = '⚠ No users allowed yet — nobody can use the bot. Message the bot to get your user ID, then add it here.';
-    chips.appendChild(empty);
-  }
-  users.forEach((entry) => {
-    const chip = document.createElement('span');
-    chip.className = 'user-chip';
-    const label = document.createElement('span');
-    label.textContent = /^\d+$/.test(entry) ? entry : (entry.startsWith('@') ? entry : '@' + entry);
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.textContent = '×';
-    remove.title = 'Remove';
-    remove.onclick = () => removeAllowedUser(entry);
-    chip.appendChild(label);
-    chip.appendChild(remove);
-    chips.appendChild(chip);
-  });
-}
-
-async function setAccessMode(mode) {
-  if ((currentConfig?.telegram?.accessMode || 'private') === mode) return;
-  currentConfig.telegram.accessMode = mode;
-  await saveAccessConfig(mode === 'public' ? 'Bot is now public' : 'Bot is now private');
-}
-
-async function addAllowedUser() {
-  const input = document.getElementById('allowed-user-input');
-  const value = input.value.trim();
-  if (!value) return;
-  if (!/^(@?[A-Za-z][A-Za-z0-9_]{0,31}|\d+)$/.test(value)) {
-    showToast('Enter a numeric user ID or a @username', 'error');
-    return;
-  }
-  const users = currentConfig.telegram.allowedUsers || [];
-  const normalized = value.replace(/^@/, '').toLowerCase();
-  if (users.some(u => u.replace(/^@/, '').toLowerCase() === normalized)) {
-    showToast('Already in the list', 'error');
-    return;
-  }
-  currentConfig.telegram.allowedUsers = [...users, value];
-  input.value = '';
-  await saveAccessConfig('User added');
-}
-
-async function removeAllowedUser(entry) {
-  currentConfig.telegram.allowedUsers =
-    (currentConfig.telegram.allowedUsers || []).filter(u => u !== entry);
-  await saveAccessConfig('User removed');
-}
-
-async function saveAccessConfig(message) {
-  renderAccessControl();
-  try {
-    const response = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        telegram: currentConfig.telegram,
-        target: currentConfig.target,
-        server: currentConfig.server || { port: 9634 },
-      }),
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Failed to save');
-    showToast(message);
-  } catch (error) {
-    showToast('Failed to save: ' + error.message, 'error');
-    await loadConfig(); // re-sync UI with what the server actually has
-  }
-}
-
-// Save MCP settings
-async function saveMCP() {
-  try {
-    let params;
-    try {
-      params = JSON.parse(document.getElementById('params').value);
-    } catch (e) {
-      showToast('Invalid JSON in Parameters field', 'error');
-      return;
-    }
-
-    const authToken = document.getElementById('authToken').value.trim();
-    const target = {
-      transport: document.getElementById('transport').value,
-      url: document.getElementById('targetUrl').value,
-      tool: document.getElementById('tool').value,
-      params: params,
-    };
-    if (authToken) {
-      target.authToken = authToken;
-    }
-    // Persist the prompt template (referenced as {{template}} in params) when in use
-    const promptTemplate = document.getElementById('promptTemplate').value;
-    if (JSON.stringify(params).includes('{{template}}') && promptTemplate.trim()) {
-      target.promptTemplate = promptTemplate;
-    }
-
-    const config = {
-      telegram: currentConfig.telegram,
-      target: target,
-      server: { port: 9634 },
-    };
-
-    const response = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error || 'Failed to save');
-    }
-
-    showToast('MCP settings saved');
-
-    // Close edit form
-    mcpEditVisible = false;
-    mcpEditForm.classList.add('hidden');
-    editBtnText.textContent = 'Edit Configuration';
-
-    await loadConfig();
-
-    // Restart to apply MCP changes
-    await fetch('/api/restart', { method: 'POST' });
-    await updateStatus();
-
-  } catch (error) {
-    showToast('Failed to save: ' + error.message, 'error');
-  }
-}
-
 // Restart bot
 async function restartBot() {
   try {
@@ -415,62 +239,6 @@ async function restartBot() {
   } catch (error) {
     showToast('Failed to restart: ' + error.message, 'error');
   }
-}
-
-// Toggle MCP edit form
-function toggleMCPEdit() {
-  mcpEditVisible = !mcpEditVisible;
-
-  if (mcpEditVisible) {
-    mcpEditForm.classList.remove('hidden');
-    editBtnText.textContent = 'Cancel Editing';
-  } else {
-    mcpEditForm.classList.add('hidden');
-    editBtnText.textContent = 'Edit Configuration';
-  }
-}
-
-// Preset configurations
-const PRESETS = {
-  echo: {
-    transport: 'http',
-    url: 'http://localhost:9634/mcp',
-    authToken: '',
-    tool: 'echo',
-    params: {
-      message: '{{text}}',
-      chatId: '{{chatId}}',
-      username: '{{username}}',
-    },
-  },
-};
-
-// Apply a preset to the form
-function applyPreset() {
-  const presetName = document.getElementById('preset').value;
-  const beaconPanel = document.getElementById('beacon-panel');
-
-  if (presetName === 'beacon') {
-    beaconPanel.classList.remove('hidden');
-    runBeaconDiscovery();
-    return;
-  } else {
-    beaconPanel.classList.add('hidden');
-  }
-
-  if (!presetName || !PRESETS[presetName]) {
-    // Custom: keep current fields, just re-evaluate the prompt-template editor
-    refreshPromptWrapperFromParams();
-    return;
-  }
-
-  const preset = PRESETS[presetName];
-  document.getElementById('transport').value = preset.transport;
-  document.getElementById('targetUrl').value = preset.url;
-  document.getElementById('authToken').value = preset.authToken;
-  document.getElementById('tool').value = preset.tool;
-  document.getElementById('params').value = JSON.stringify(preset.params, null, 2);
-  refreshPromptWrapperFromParams();
 }
 
 // Template variable mapping for auto-generating params from tool schemas
@@ -577,166 +345,6 @@ Reply directly and concisely.
 
 Message:
 {{text}}`;
-
-// The prompt template lives in its own field ({{template}} expands to it at send
-// time), so the text is stored once — not duplicated inside the params JSON.
-function showPromptWrapper() {
-  document.getElementById('prompt-wrapper-group').classList.remove('hidden');
-}
-
-function hidePromptWrapper() {
-  document.getElementById('prompt-wrapper-group').classList.add('hidden');
-}
-
-// The editor is shown whenever the params JSON references the {{template}} token.
-function refreshPromptWrapperFromParams() {
-  const raw = document.getElementById('params').value || '';
-  if (raw.includes('{{template}}')) showPromptWrapper();
-  else hidePromptWrapper();
-}
-
-// Beacon discovery state
-let _beaconServers = [];
-
-// Run beacon discovery scan
-async function runBeaconDiscovery() {
-  const loading = document.getElementById('beacon-loading');
-  const empty = document.getElementById('beacon-empty');
-  const serversDiv = document.getElementById('beacon-servers');
-  const toolsDiv = document.getElementById('beacon-tools');
-  const scanBtn = document.getElementById('beacon-scan-btn');
-
-  loading.classList.remove('hidden');
-  empty.classList.add('hidden');
-  document.getElementById('beacon-claude-status').classList.add('hidden');
-  serversDiv.innerHTML = '';
-  toolsDiv.innerHTML = '';
-  scanBtn.disabled = true;
-  scanBtn.textContent = 'Scanning...';
-
-  try {
-    const response = await fetch('/api/beacon/discover');
-    const { servers } = await response.json();
-
-    if (!servers || servers.length === 0) {
-      empty.classList.remove('hidden');
-      return;
-    }
-
-    _beaconServers = servers;
-
-    // Auto-detect a Claude/LLM destination among discovered servers (like chronos)
-    const claude = detectClaudeTool(servers);
-    const selectedServer = claude ? claude.serverIndex : 0;
-
-    serversDiv.innerHTML = servers.map((s, i) => `
-      <div class="beacon-server ${i === selectedServer ? 'selected' : ''}" onclick="selectBeaconServer(${i})" data-index="${i}">
-        <div class="beacon-server-name">${escapeHtml(s.name)}</div>
-        <div class="beacon-desc">${escapeHtml(s.description)}</div>
-        <div class="beacon-url">${escapeHtml(s.url)}</div>
-      </div>
-    `).join('');
-
-    const claudeStatus = document.getElementById('beacon-claude-status');
-    if (claude) {
-      // Found Claude — pre-select its server, then its specific tool, and announce it.
-      selectBeaconServer(claude.serverIndex);
-      selectBeaconTool(claude.serverIndex, claude.toolIndex);
-      document.getElementById('beacon-claude-status-text').textContent =
-        `Claude connected via beacon — auto-selected ${claude.server.name} / ${claude.tool.name}`;
-      claudeStatus.classList.remove('hidden');
-    } else {
-      claudeStatus.classList.add('hidden');
-      selectBeaconServer(0);
-    }
-  } catch (err) {
-    showToast('Discovery failed: ' + err.message, 'error');
-  } finally {
-    loading.classList.add('hidden');
-    scanBtn.disabled = false;
-    scanBtn.textContent = 'Scan Network';
-  }
-}
-
-// Select a discovered beacon server and show its tools
-function selectBeaconServer(index) {
-  if (!_beaconServers[index]) return;
-
-  const server = _beaconServers[index];
-
-  document.querySelectorAll('.beacon-server').forEach((el, i) => {
-    el.classList.toggle('selected', i === index);
-  });
-
-  const toolsDiv = document.getElementById('beacon-tools');
-  if (server.tools && server.tools.length > 0) {
-    toolsDiv.innerHTML =
-      '<div style="font-weight: 600; font-size: 13px; margin-bottom: 8px;">Tools</div>' +
-      server.tools.map((t, i) => `
-        <div class="beacon-tool" onclick="selectBeaconTool(${index}, ${i})" data-server="${index}" data-tool="${i}">
-          <div class="beacon-tool-name">${escapeHtml(t.name)}</div>
-          <div class="beacon-desc">${escapeHtml(t.description || '')}</div>
-        </div>
-      `).join('');
-  } else {
-    toolsDiv.innerHTML = '<div style="color: #6c757d; font-size: 13px;">No tools advertised by this server.</div>';
-  }
-}
-
-// Select a tool from a beacon server and fill the form
-function selectBeaconTool(serverIndex, toolIndex) {
-  const server = _beaconServers[serverIndex];
-  const tool = server.tools[toolIndex];
-
-  document.querySelectorAll('.beacon-tool').forEach((el, i) => {
-    el.classList.toggle('selected', i === toolIndex);
-  });
-
-  document.getElementById('transport').value = 'http';
-  document.getElementById('targetUrl').value = server.url;
-  // Servers announce their auth over local discovery (e.g. claude-code sends
-  // { type: 'bearer', token: ... }); carry it into the form or the saved
-  // target gets 401s against auth-enforcing MCP servers.
-  document.getElementById('authToken').value =
-    (server.auth && server.auth.type === 'bearer' && server.auth.token) ? server.auth.token : '';
-  document.getElementById('tool').value = tool.name;
-
-  const generated = generateParamsFromSchema(tool.inputSchema);
-  const promptParam = findPromptParam(tool.inputSchema);
-  // For LLM-style tools, point the prompt param at {{template}} (resolved to the
-  // template text at send time) and seed the template field with the default.
-  if (promptParam) {
-    generated[promptParam] = '{{template}}';
-    document.getElementById('promptTemplate').value = DEFAULT_CLAUDE_PROMPT;
-  }
-  document.getElementById('params').value = JSON.stringify(generated, null, 2);
-
-  if (promptParam) showPromptWrapper();
-  else hidePromptWrapper();
-}
-
-// Detect which preset matches current config
-function detectPreset(target) {
-  for (const [name, preset] of Object.entries(PRESETS)) {
-    if (target.tool === preset.tool && target.transport === preset.transport) {
-      return name;
-    }
-  }
-  return '';
-}
-
-// Update MCP display
-function updateMCPDisplay() {
-  if (currentConfig) {
-    const toolName = currentConfig.target.tool || 'echo';
-    const url = currentConfig.target.url || '';
-
-    flowToolName.textContent = toolName;
-    mcpToolDisplay.textContent = toolName;
-    mcpUrlDisplay.textContent = url;
-    mcpUrlDisplay.title = url; // Full URL on hover
-  }
-}
 
 // Toggle webhook URL field visibility
 function toggleWebhookUrl() {
@@ -899,6 +507,457 @@ async function resolveWebPermission(queryId, decision) {
   } catch (err) {
     console.error('Failed to resolve permission:', err);
   }
+}
+
+// ── Target cards (one shared component) ──────────────────────────────────────
+// ONE renderer (renderTargetBody) drives BOTH the Default target card and every
+// per-chat card. The Default is simply a target with no chat filter (the
+// catch-all); a per-chat target adds a Chat IDs box. Same markup, same classes,
+// same look and feel — there is no second copy of the card to drift.
+//
+// Edits live in plain model objects. Text inputs sync via oninput (so chip/
+// toggle re-renders never lose what you typed); chips/toggles re-render. The
+// whole document is persisted together by saveAll() (POST /api/config applies
+// live — no restart).
+
+let defaultModel = null;
+let chatTargetsState = [];
+
+function blankModel() {
+  return {
+    chatIds: [], accessMode: 'private', allowedUsers: [],
+    url: '', authToken: '', tool: '',
+    paramsText: JSON.stringify({ message: '{{text}}', chatId: '{{chatId}}' }, null, 2),
+    promptTemplate: '', _editOpen: false, _beacon: null,
+    _preset: '', _beaconServerIdx: 0, _beaconLoading: false, _claudeStatus: '',
+  };
+}
+
+// Map the saved config onto editable models: the Default card = telegram access
+// + the top-level target; each per-chat card = a chatTargets entry.
+function buildModels() {
+  const tg = currentConfig.telegram || {};
+  const tgt = currentConfig.target || {};
+  defaultModel = {
+    chatIds: [],
+    accessMode: tg.accessMode || 'private',
+    allowedUsers: (tg.allowedUsers || []).slice(),
+    url: tgt.url || '', authToken: tgt.authToken || '', tool: tgt.tool || '',
+    paramsText: JSON.stringify(tgt.params || {}, null, 2),
+    promptTemplate: tgt.promptTemplate || '', _editOpen: false, _beacon: null,
+    _preset: tgt.tool === 'echo' ? 'echo' : '', _beaconServerIdx: 0, _beaconLoading: false, _claudeStatus: '',
+  };
+  chatTargetsState = (currentConfig.chatTargets || []).map((t) => ({
+    chatIds: Array.isArray(t.chatIds) ? t.chatIds.map(String) : [],
+    accessMode: t.accessMode || 'private',
+    allowedUsers: Array.isArray(t.allowedUsers) ? t.allowedUsers.slice() : [],
+    url: t.url || '', authToken: t.authToken || '', tool: t.tool || '',
+    paramsText: JSON.stringify(t.params || {}, null, 2),
+    promptTemplate: t.promptTemplate || '', _editOpen: false, _beacon: null,
+    _preset: t.tool === 'echo' ? 'echo' : '', _beaconServerIdx: 0, _beaconLoading: false, _claudeStatus: '',
+  }));
+}
+
+function getModel(key) {
+  return key === 'default' ? defaultModel : chatTargetsState[Number(key)];
+}
+
+function chipsHtml(items, removeFn, key) {
+  return (items || []).map((v) =>
+    `<span class="user-chip"><span>${escapeHtml(v)}</span>` +
+    `<button type="button" title="Remove" onclick="${removeFn}('${key}', '${escapeHtml(v)}')">×</button></span>`
+  ).join('');
+}
+
+// The shared card body. key === 'default' for the catch-all, else a chat index.
+function renderTargetBody(m, key) {
+  const isDefault = key === 'default';
+  const toolName = m.tool || 'echo';
+  const urlDisplay = m.url || '(not set)';
+  const accessHint = m.accessMode === 'public'
+    ? (isDefault
+        ? 'Anyone who can message the bot can trigger this target.'
+        : 'Anyone who can message the bot in these chats can trigger this target.')
+    : (isDefault
+        ? 'Only the users below can use the bot (direct or group chats). Others get a reply with their user ID.'
+        : 'Only the users below can use the bot in these chats. Others are ignored.');
+
+  // Beacon discovery panel (shown when the Beacon preset is selected) — same
+  // layout as the original: a "Discovered Servers" box with Scan Network, a
+  // selectable server list and the selected server's tools.
+  const sel = m._beaconServerIdx || 0;
+  const beaconPanel = m._preset === 'beacon' ? `
+    <div style="margin-bottom: 16px;">
+      <div style="background: #f8f9fa; border-radius: 8px; padding: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <span style="font-weight: 600; font-size: 14px;">Discovered Servers</span>
+          <button type="button" class="btn-secondary" style="padding: 6px 14px; font-size: 13px;" onclick="tgtScanBeacon('${key}')">${m._beaconLoading ? 'Scanning…' : 'Scan Network'}</button>
+        </div>
+        ${m._beaconLoading ? '<div style="text-align:center;padding:20px;color:#6c757d;">Scanning for MCP servers…</div>' : ''}
+        ${(m._beacon && m._beacon.length === 0 && !m._beaconLoading) ? '<div style="text-align:center;padding:20px;color:#6c757d;">No servers found. Make sure MCP servers are running on the network.</div>' : ''}
+        ${m._claudeStatus ? `<div style="display:flex;align-items:center;gap:8px;background:#e7f5ec;color:#1a7f4b;border:1px solid #b7e4c7;border-radius:6px;padding:8px 12px;font-size:13px;font-weight:600;margin-bottom:12px;"><span>✓</span><span>${escapeHtml(m._claudeStatus)}</span></div>` : ''}
+        ${(m._beacon || []).map((s, si) => `
+          <div class="beacon-server ${si === sel ? 'selected' : ''}" onclick="tgtSelectBeaconServer('${key}', ${si})">
+            <div class="beacon-server-name">${escapeHtml(s.name)}</div>
+            <div class="beacon-desc">${escapeHtml(s.description || '')}</div>
+            <div class="beacon-url">${escapeHtml(s.url)}</div>
+          </div>`).join('')}
+        ${(m._beacon && m._beacon[sel] && (m._beacon[sel].tools || []).length) ? `
+          <div style="margin-top: 12px;">
+            <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px;">Tools</div>
+            ${m._beacon[sel].tools.map((t, ti) => `
+              <div class="beacon-tool" onclick="tgtPickBeaconTool('${key}', ${sel}, ${ti})">
+                <div class="beacon-tool-name">${escapeHtml(t.name)}</div>
+                <div class="beacon-desc">${escapeHtml(t.description || '')}</div>
+              </div>`).join('')}
+          </div>` : ''}
+      </div>
+    </div>` : '';
+
+  return `
+    ${isDefault ? '' : `
+    <div class="access-control">
+      <div class="access-header"><span class="access-title">Chat IDs</span></div>
+      <p class="access-hint">Telegram chat IDs this card serves. Group IDs can be negative.</p>
+      <div class="allowed-users">
+        <div class="user-chips">${chipsHtml(m.chatIds, 'tgtRemoveChatId', key)}</div>
+        <div class="chip-add">
+          <input type="text" placeholder="chat ID, e.g. 123456789"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();tgtAddChatId('${key}', this);}">
+          <button type="button" class="btn-secondary" onclick="tgtAddChatId('${key}', this.previousElementSibling)">+</button>
+        </div>
+      </div>
+    </div>`}
+
+    <div class="access-control">
+      <div class="access-header">
+        <span class="access-title">Access</span>
+        <div class="access-toggle">
+          <button type="button" class="${m.accessMode === 'public' ? 'active' : ''}" onclick="tgtSetAccess('${key}', 'public')">Public</button>
+          <button type="button" class="${m.accessMode === 'private' ? 'active' : ''}" onclick="tgtSetAccess('${key}', 'private')">Private</button>
+        </div>
+      </div>
+      <p class="access-hint">${accessHint}</p>
+      ${m.accessMode === 'private' ? `
+      <div class="allowed-users">
+        <div class="user-chips">${chipsHtml(m.allowedUsers, 'tgtRemoveUser', key)}</div>
+        <div class="chip-add">
+          <input type="text" placeholder="@username or user ID"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();tgtAddUser('${key}', this);}">
+          <button type="button" class="btn-secondary" onclick="tgtAddUser('${key}', this.previousElementSibling)">+</button>
+        </div>
+      </div>` : ''}
+    </div>
+
+    <div class="flow-diagram">
+      <div class="flow-step"><div class="flow-icon">💬</div><div class="flow-label">Message</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="flow-icon">⚡</div><div class="flow-label">${escapeHtml(toolName)}</div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><div class="flow-icon">📤</div><div class="flow-label">Reply</div></div>
+    </div>
+
+    <div class="mcp-info">
+      <div class="mcp-info-row"><span class="mcp-info-label">Tool</span><span class="mcp-info-value">${escapeHtml(toolName)}</span></div>
+      <div class="mcp-info-row"><span class="mcp-info-label">Endpoint</span><span class="mcp-info-value mcp-info-url">${escapeHtml(urlDisplay)}</span></div>
+    </div>
+
+    <button class="btn-edit" onclick="tgtToggleEdit('${key}', this)">
+      <span>${m._editOpen ? 'Hide Configuration' : 'Edit Configuration'}</span>
+    </button>
+
+    <div class="tgt-edit-form ${m._editOpen ? '' : 'hidden'}">
+      <div class="edit-form-content">
+        <label>Preset</label>
+        <select onchange="tgtApplyPreset('${key}', this.value)">
+          <option value=""${m._preset === '' ? ' selected' : ''}>Custom</option>
+          <option value="echo"${m._preset === 'echo' ? ' selected' : ''}>Echo (built-in test)</option>
+          <option value="beacon"${m._preset === 'beacon' ? ' selected' : ''}>Beacon Discovery</option>
+        </select>
+        <p class="hint">Select a preset to auto-fill the fields below, or choose Custom</p>
+
+        ${beaconPanel}
+
+        <label>Transport</label>
+        <select disabled><option value="http">HTTP (Streamable)</option></select>
+
+        <label>MCP Server URL</label>
+        <input type="url" value="${escapeHtml(m.url)}" placeholder="http://localhost:9634/mcp" oninput="tgtField('${key}', 'url', this.value)">
+        <p class="hint">Use <code>http://localhost:9634/mcp</code> for the built-in echo server</p>
+
+        <label>Auth Token</label>
+        <input type="password" value="${escapeHtml(m.authToken)}" placeholder="Optional bearer token" oninput="tgtField('${key}', 'authToken', this.value)">
+        <p class="hint">Required for claude-code-container (same as AUTH_PASSWORD)</p>
+
+        <label>Tool Name</label>
+        <input type="text" value="${escapeHtml(m.tool)}" placeholder="echo" oninput="tgtField('${key}', 'tool', this.value)">
+
+        ${m.paramsText.includes('{{template}}') ? `
+        <label>Prompt template <span style="font-weight:400;color:#6c757d;">(referenced as {{template}} in Parameters)</span></label>
+        <textarea rows="8" oninput="tgtField('${key}', 'promptTemplate', this.value)">${escapeHtml(m.promptTemplate)}</textarea>
+        <p class="hint">Use <code>{{text}}</code> for the message. The default tells the LLM it can call <code>get_chat_history</code> with <code>{{chatId}}</code> to pull earlier messages for context. The Parameters JSON below references this once via <code>{{template}}</code>.</p>` : ''}
+
+        <label>Parameters (JSON)</label>
+        <textarea oninput="tgtField('${key}', 'paramsText', this.value)">${escapeHtml(m.paramsText)}</textarea>
+        <p class="hint">Variables: <code>{{text}}</code>, <code>{{chatId}}</code>, <code>{{userId}}</code>, <code>{{username}}</code>, <code>{{firstName}}</code></p>
+
+        <div class="card-actions">
+          <button class="btn-primary" onclick="saveTarget('${key}')">Save changes</button>
+          ${isDefault ? '' : `<button class="btn-secondary" onclick="tgtCopyDefault('${key}')">Copy from default</button>`}
+          ${isDefault ? '' : `<button class="btn-danger" onclick="removeTarget('${key}')" style="margin-left:auto;">Remove this target</button>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDefaultTarget() {
+  const el = document.getElementById('default-target-body');
+  if (el) el.innerHTML = renderTargetBody(defaultModel, 'default');
+}
+
+function renderChatTargets() {
+  const list = document.getElementById('chat-targets-list');
+  const count = document.getElementById('chat-targets-count');
+  if (count) count.textContent = String(chatTargetsState.length);
+  if (!list) return;
+  if (chatTargetsState.length === 0) {
+    list.innerHTML = '<div class="ct-empty">No per-chat targets yet. Every chat uses the Default target above. Click “Add per-chat target” to override specific chats.</div>';
+    return;
+  }
+  list.innerHTML = chatTargetsState.map((m, i) => {
+    const nChats = m.chatIds.length;
+    const title = nChats ? 'chat ' + escapeHtml(m.chatIds.join(', ')) : 'new target';
+    const badge = `${nChats} chat${nChats === 1 ? '' : 's'}`;
+    return `
+    <div class="card">
+      <div class="card-header collapsible" onclick="tgtToggleCard(this)">
+        <h2>MCP Target · ${title}</h2>
+        <span class="status-badge">${badge}</span>
+      </div>
+      <div class="ct-body">
+        ${renderTargetBody(m, i)}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderAllTargets() {
+  renderDefaultTarget();
+  renderChatTargets();
+}
+
+function rerenderTarget(key) {
+  if (key === 'default') renderDefaultTarget();
+  else renderChatTargets();
+}
+
+// Collapse/expand a per-chat card (mirrors toggleCard for the static cards).
+function tgtToggleCard(headerEl) {
+  headerEl.classList.toggle('collapsed');
+  const body = headerEl.parentElement.querySelector('.ct-body');
+  if (body) body.classList.toggle('hidden');
+}
+
+function tgtToggleEdit(key, btn) {
+  const m = getModel(key);
+  m._editOpen = !m._editOpen;
+  const form = btn.parentElement.querySelector('.tgt-edit-form');
+  if (form) form.classList.toggle('hidden');
+  const label = btn.querySelector('span');
+  if (label) label.textContent = m._editOpen ? 'Hide Configuration' : 'Edit Configuration';
+}
+
+// Text fields update the model without a re-render (keeps focus/caret).
+function tgtField(key, field, value) {
+  const m = getModel(key);
+  if (m) m[field] = value;
+}
+
+function tgtSetAccess(key, mode) { getModel(key).accessMode = mode; rerenderTarget(key); }
+
+function tgtAddChatId(key, input) {
+  const v = (input.value || '').trim();
+  if (!v) return;
+  if (!/^-?\d+$/.test(v)) { showToast('Chat ID must be numeric (group IDs can be negative)', 'error'); return; }
+  const m = getModel(key);
+  if (!m.chatIds.includes(v)) m.chatIds.push(v);
+  input.value = '';
+  rerenderTarget(key);
+}
+
+function tgtRemoveChatId(key, v) {
+  const m = getModel(key);
+  m.chatIds = m.chatIds.filter((x) => x !== v);
+  rerenderTarget(key);
+}
+
+function tgtAddUser(key, input) {
+  const v = (input.value || '').trim();
+  if (!v) return;
+  if (!/^(@?[A-Za-z][A-Za-z0-9_]{0,31}|\d+)$/.test(v)) { showToast('Enter a numeric user ID or a @username', 'error'); return; }
+  const m = getModel(key);
+  const norm = v.replace(/^@/, '').toLowerCase();
+  if (!(m.allowedUsers || []).some((u) => u.replace(/^@/, '').toLowerCase() === norm)) {
+    m.allowedUsers = [...(m.allowedUsers || []), v];
+  }
+  input.value = '';
+  rerenderTarget(key);
+}
+
+function tgtRemoveUser(key, v) {
+  const m = getModel(key);
+  m.allowedUsers = (m.allowedUsers || []).filter((u) => u !== v);
+  rerenderTarget(key);
+}
+
+function tgtCopyDefault(key) {
+  const m = getModel(key);
+  m.url = defaultModel.url;
+  m.authToken = defaultModel.authToken;
+  m.tool = defaultModel.tool;
+  m.paramsText = defaultModel.paramsText;
+  m.promptTemplate = defaultModel.promptTemplate;
+  rerenderTarget(key);
+}
+
+// Preset dropdown: Echo fills the built-in test target; Beacon opens the
+// discovery panel and scans; Custom leaves the fields untouched.
+function tgtApplyPreset(key, preset) {
+  const m = getModel(key);
+  m._preset = preset;
+  if (preset === 'echo') {
+    m.url = 'http://localhost:9634/mcp';
+    m.authToken = '';
+    m.tool = 'echo';
+    m.paramsText = JSON.stringify({ message: '{{text}}', chatId: '{{chatId}}', username: '{{username}}' }, null, 2);
+    m.promptTemplate = '';
+    m._beacon = null; m._claudeStatus = '';
+    rerenderTarget(key);
+  } else if (preset === 'beacon') {
+    tgtScanBeacon(key);
+  } else {
+    m._beacon = null; m._claudeStatus = '';
+    rerenderTarget(key);
+  }
+}
+
+// Scan the local network for MCP servers (beacon), auto-selecting a Claude/LLM
+// tool when one is found — same behaviour as the original panel.
+async function tgtScanBeacon(key) {
+  const m = getModel(key);
+  m._preset = 'beacon';
+  m._beaconLoading = true;
+  m._claudeStatus = '';
+  rerenderTarget(key);
+  try {
+    const res = await fetch('/api/beacon/discover');
+    const { servers } = await res.json();
+    m._beacon = servers || [];
+    const claude = detectClaudeTool(m._beacon);
+    if (claude) {
+      m._beaconServerIdx = claude.serverIndex;
+      tgtFillFromTool(m, claude.server, claude.tool);
+      m._claudeStatus = `Claude connected via beacon — auto-selected ${claude.server.name} / ${claude.tool.name}`;
+    } else {
+      m._beaconServerIdx = 0;
+    }
+  } catch (e) {
+    m._beacon = [];
+    showToast('Discovery failed: ' + e.message, 'error');
+  } finally {
+    m._beaconLoading = false;
+    rerenderTarget(key);
+  }
+}
+
+function tgtSelectBeaconServer(key, si) {
+  getModel(key)._beaconServerIdx = si;
+  rerenderTarget(key);
+}
+
+// Fill a model's MCP fields from a discovered tool (shared by auto-detect + click).
+function tgtFillFromTool(m, server, tool) {
+  m.url = server.url;
+  m.authToken = (server.auth && server.auth.type === 'bearer' && server.auth.token) ? server.auth.token : '';
+  m.tool = tool.name;
+  const generated = generateParamsFromSchema(tool.inputSchema);
+  const promptParam = findPromptParam(tool.inputSchema);
+  if (promptParam) { generated[promptParam] = '{{template}}'; m.promptTemplate = DEFAULT_CLAUDE_PROMPT; }
+  m.paramsText = JSON.stringify(generated, null, 2);
+}
+
+function tgtPickBeaconTool(key, si, ti) {
+  const m = getModel(key);
+  tgtFillFromTool(m, m._beacon[si], m._beacon[si].tools[ti]);
+  rerenderTarget(key);
+}
+
+// Serialize one model into a target config object (throws on validation error).
+function buildTargetFromModel(m, includeChatMeta) {
+  let params;
+  try { params = JSON.parse(m.paramsText || '{}'); }
+  catch (e) { throw new Error('invalid JSON in Parameters'); }
+  if (typeof params !== 'object' || Array.isArray(params) || params === null) {
+    throw new Error('Parameters must be a JSON object');
+  }
+  if (!(m.url || '').trim()) throw new Error('MCP Server URL is required');
+  if (!(m.tool || '').trim()) throw new Error('Tool name is required');
+  const t = { transport: 'http', url: m.url.trim(), tool: m.tool.trim(), params };
+  if (m.authToken && m.authToken.trim()) t.authToken = m.authToken.trim();
+  if (m.promptTemplate && m.promptTemplate.trim() && JSON.stringify(params).includes('{{template}}')) {
+    t.promptTemplate = m.promptTemplate;
+  }
+  if (includeChatMeta) {
+    if (!m.chatIds.length) throw new Error('add at least one chat ID');
+    t.chatIds = m.chatIds;
+    t.accessMode = m.accessMode || 'private';
+    t.allowedUsers = m.allowedUsers || [];
+  }
+  return t;
+}
+
+// The config is one document, so any Save serializes the whole UI (Default +
+// all per-chat cards) and POSTs it. POST /api/config applies live — no restart.
+async function saveAll() {
+  let telegram, target, chatTargets;
+  try {
+    target = buildTargetFromModel(defaultModel, false);
+    telegram = { ...currentConfig.telegram, accessMode: defaultModel.accessMode, allowedUsers: defaultModel.allowedUsers };
+    chatTargets = chatTargetsState.map((m, i) => {
+      try { return buildTargetFromModel(m, true); }
+      catch (e) { throw new Error(`Per-chat target #${i + 1}: ${e.message}`); }
+    });
+  } catch (e) {
+    showToast('Failed to save: ' + e.message, 'error');
+    return;
+  }
+  try {
+    const cfg = { telegram, target, chatTargets, server: currentConfig.server || { port: 9634 } };
+    const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to save');
+    showToast('Saved');
+    await loadConfig();
+    await updateStatus();
+  } catch (e) {
+    showToast('Failed to save: ' + e.message, 'error');
+  }
+}
+
+function saveTarget(key) { return saveAll(); }
+
+function addChatTarget() {
+  const m = blankModel();
+  m._editOpen = true;
+  chatTargetsState.push(m);
+  renderChatTargets();
+}
+
+function removeTarget(key) {
+  chatTargetsState.splice(Number(key), 1);
+  renderChatTargets();
+  saveAll();
 }
 
 // Initialize

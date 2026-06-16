@@ -1,7 +1,7 @@
 import { createApi } from "./api.js";
 import { TelegramBot } from "./bot.js";
 import { loadConfig, isPlaceholderConfig } from "./config.js";
-import { MCPClient } from "./mcp-client.js";
+import { MCPClientPool } from "./mcp-client.js";
 import { MCPServer } from "./mcp-server.js";
 import { PermissionService, WebPermissionService } from "./permission-service.js";
 import { loadHistory } from "./history.js";
@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   loadHistory();
 
   const bot = new TelegramBot(config);
-  const mcpClient = new MCPClient(config.target);
+  const mcpClient = new MCPClientPool(config);
   const mcpServer = new MCPServer(bot);
   const permissionService = new PermissionService();
   const webPermissionService = new WebPermissionService();
@@ -33,11 +33,11 @@ async function main(): Promise<void> {
   const restart = async (): Promise<void> => {
     console.log("Restarting...");
     await bot.stop();
-    await mcpClient.disconnect();
+    await mcpClient.disconnectAll();
 
     config = loadConfig();
     bot.updateConfig(config);
-    mcpClient.updateConfig(config.target);
+    mcpClient.updateConfig(config);
 
     let botError: unknown = null;
     try {
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
       botError = err;
     }
     try {
-      await mcpClient.connect();
+      await mcpClient.connectAll();
     } catch (err) {
       console.warn("MCP client connection failed (will retry on message):", err);
     }
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
     }
 
     try {
-      await mcpClient.connect();
+      await mcpClient.connectAll();
     } catch (err) {
       console.warn("MCP client connection failed (will retry on message):", err);
     }
@@ -116,7 +116,7 @@ async function main(): Promise<void> {
 
     server.close();
     await bot.stop();
-    await mcpClient.disconnect();
+    await mcpClient.disconnectAll();
     await mcpServer.stop();
 
     console.log("Shutdown complete");

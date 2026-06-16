@@ -27,6 +27,7 @@ const DEFAULT_CONFIG: Config = {
       username: "{{username}}",
     },
   },
+  chatTargets: [],
   server: {
     port: 9634,
   },

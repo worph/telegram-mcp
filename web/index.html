@@ -667,6 +667,19 @@
       padding: 8px 16px;
       font-size: 14px;
     }
+    /* Per-chat target cards */
+    /* Per-chat target cards reuse the Default card's components. Only a couple
+       of small helpers are needed beyond the shared classes. */
+    .ct-empty {
+      color: #6c757d;
+      font-size: 14px;
+      text-align: center;
+      padding: 18px;
+      border: 1px dashed #d0d7de;
+      border-radius: 8px;
+    }
+    .btn-danger { background: #f8d7da; color: #b02a37; }
+    .btn-danger:hover { background: #f1c2c7; }
   </style>
 </head>
 <body>
@@ -782,7 +795,7 @@
   <!-- MCP Section -->
   <div class="card" id="mcp-card">
     <div class="card-header collapsible collapsed" onclick="toggleCard('mcp-body', this)">
-      <h2>MCP Target</h2>
+      <h2>MCP Target · Default</h2>
       <span class="status-badge warning" id="mcp-status">
         <span class="status-dot"></span>
         <span id="mcp-status-text">Disconnected</span>
@@ -793,6 +806,7 @@
     <p style="color: #555; font-size: 14px; line-height: 1.6; margin: 0 0 16px;">
       This is the <em>egress</em> direction — when you send a message to the bot, it gets forwarded as a tool call
       to the MCP server configured here. The server processes it and the response is sent back to you as a reply.
+      This is the <strong>default (catch-all)</strong>: it serves any chat that isn't matched by a per-chat target below.
     </p>
 
     <!-- Setup prompt (hidden - MCP config always visible) -->
@@ -804,130 +818,32 @@
 
     <!-- MCP Info & Config (always visible) -->
     <div id="mcp-config" class="">
-      <!-- Access control -->
-      <div class="access-control">
-        <div class="access-header">
-          <span class="access-title">Access</span>
-          <div class="access-toggle">
-            <button type="button" id="access-public-btn" onclick="setAccessMode('public')">Public</button>
-            <button type="button" id="access-private-btn" onclick="setAccessMode('private')">Private</button>
-          </div>
-        </div>
-        <p class="access-hint" id="access-hint"></p>
-        <div class="allowed-users hidden" id="allowed-users-section">
-          <div class="user-chips" id="user-chips"></div>
-          <div class="chip-add">
-            <input type="text" id="allowed-user-input" placeholder="@username or user ID"
-                   onkeydown="if (event.key === 'Enter') { event.preventDefault(); addAllowedUser(); }">
-            <button type="button" class="btn-secondary" onclick="addAllowedUser()">+</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Flow diagram -->
-      <div class="flow-diagram">
-        <div class="flow-step">
-          <div class="flow-icon">💬</div>
-          <div class="flow-label">Message</div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-icon">⚡</div>
-          <div class="flow-label" id="flow-tool-name">echo</div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-icon">📤</div>
-          <div class="flow-label">Reply</div>
-        </div>
-      </div>
-
-      <!-- Current config display -->
-      <div class="mcp-info">
-        <div class="mcp-info-row">
-          <span class="mcp-info-label">Tool</span>
-          <span class="mcp-info-value" id="mcp-tool-display">echo</span>
-        </div>
-        <div class="mcp-info-row">
-          <span class="mcp-info-label">Endpoint</span>
-          <span class="mcp-info-value mcp-info-url" id="mcp-url-display">http://localhost:9634/mcp</span>
-        </div>
-      </div>
-
-      <!-- Edit toggle -->
-      <button class="btn-edit" onclick="toggleMCPEdit()">
-        <span id="edit-btn-text">Edit Configuration</span>
-      </button>
-
-      <!-- Collapsible edit form -->
-      <div id="mcp-edit-form" class="hidden">
-        <div class="edit-form-content">
-          <label for="preset">Preset</label>
-          <select id="preset" onchange="applyPreset()">
-            <option value="">Custom</option>
-            <option value="echo">Echo (built-in test)</option>
-            <option value="beacon">Beacon Discovery</option>
-          </select>
-          <p class="hint">Select a preset to auto-fill the fields below, or choose Custom</p>
-
-          <div id="beacon-panel" class="hidden" style="margin-bottom: 16px;">
-            <div style="background: #f8f9fa; border-radius: 8px; padding: 16px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <span style="font-weight: 600; font-size: 14px;">Discovered Servers</span>
-                <button class="btn-secondary" onclick="runBeaconDiscovery()" id="beacon-scan-btn" style="padding: 6px 14px; font-size: 13px;">
-                  Scan Network
-                </button>
-              </div>
-              <div id="beacon-loading" class="hidden" style="text-align: center; padding: 20px; color: #6c757d;">
-                Scanning for MCP servers...
-              </div>
-              <div id="beacon-empty" class="hidden" style="text-align: center; padding: 20px; color: #6c757d;">
-                No servers found. Make sure MCP servers are running on the network.
-              </div>
-              <div id="beacon-claude-status" class="hidden" style="display: flex; align-items: center; gap: 8px; background: #e7f5ec; color: #1a7f4b; border: 1px solid #b7e4c7; border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: 600; margin-bottom: 12px;">
-                <span>✓</span><span id="beacon-claude-status-text">Claude connected via beacon — auto-selected as destination</span>
-              </div>
-              <div id="beacon-servers"></div>
-              <div id="beacon-tools" style="margin-top: 12px;"></div>
-            </div>
-          </div>
-
-          <label for="transport">Transport</label>
-          <select id="transport">
-            <option value="http">HTTP (Streamable)</option>
-          </select>
-
-          <label for="targetUrl">MCP Server URL</label>
-          <input type="url" id="targetUrl" placeholder="http://localhost:9634/mcp">
-          <p class="hint">Use <code>http://localhost:9634/mcp</code> for the built-in echo server</p>
-
-          <label for="authToken">Auth Token</label>
-          <input type="password" id="authToken" placeholder="Optional bearer token">
-          <p class="hint">Required for claude-code-container (same as AUTH_PASSWORD)</p>
-
-          <label for="tool">Tool Name</label>
-          <input type="text" id="tool" placeholder="echo">
-
-          <div id="prompt-wrapper-group" class="hidden">
-            <label for="promptTemplate">Prompt template <span style="font-weight:400;color:#6c757d;">(referenced as {{template}} in Parameters)</span></label>
-            <textarea id="promptTemplate" rows="8" placeholder="Context for the LLM. Must include {{text}} where the user's message goes."></textarea>
-            <p class="hint">Use <code>{{text}}</code> for the message. The default tells the LLM it can call <code>get_chat_history</code> with <code>{{chatId}}</code> to pull earlier messages for context. The Parameters JSON below references this once via <code>{{template}}</code>.</p>
-          </div>
-
-          <label for="params">Parameters (JSON)</label>
-          <textarea id="params" placeholder='{"message": "{{text}}", "chatId": "{{chatId}}"}'></textarea>
-          <p class="hint">Variables: <code>{{text}}</code>, <code>{{chatId}}</code>, <code>{{userId}}</code>, <code>{{username}}</code>, <code>{{firstName}}</code></p>
-
-          <div class="card-actions">
-            <button class="btn-primary" onclick="saveMCP()">Save Changes</button>
-            <button class="btn-secondary" onclick="toggleMCPEdit()">Cancel</button>
-          </div>
-        </div>
-      </div>
-
+      <div id="default-target-body"></div>
     </div>
     </div><!-- end mcp-body -->
   </div>
+
+  <!-- Per-chat Targets: each rendered card mirrors the Default MCP Target card -->
+  <div class="card" id="chat-targets-controls">
+    <div class="card-header collapsible" onclick="toggleCard('chat-targets-body', this)">
+      <h2>Per-chat Targets</h2>
+      <span class="status-badge" id="chat-targets-count">0</span>
+    </div>
+    <div id="chat-targets-body">
+      <p style="color: #555; font-size: 14px; line-height: 1.6; margin: 0 0 16px;">
+        Each card below is the same as the <strong>Default</strong> target above — access control plus MCP
+        config — but scoped to specific chat IDs. An incoming chat uses the first card whose chat IDs match it;
+        otherwise the Default target is used.
+      </p>
+      <div class="card-actions" style="border-top: none; padding-top: 0;">
+        <button class="btn-secondary" onclick="addChatTarget()">+ Add per-chat target</button>
+        <button class="btn-primary" onclick="saveAll()">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rendered per-chat target cards land here (full .card elements) -->
+  <div id="chat-targets-list"></div>
 
   <!-- MCP Server Info Card -->
   <div class="card" id="mcp-server-card">

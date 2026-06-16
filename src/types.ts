@@ -26,6 +26,21 @@ export const TargetConfigSchema = z.object({
   promptTemplate: z.string().optional(),
 });
 
+// A per-chat target override: a full TargetConfig plus the list of chat IDs it
+// serves. The first chatTargets entry whose `chatIds` contains the incoming
+// chat wins; if none match, the top-level `target` is used as the catch-all
+// default. Each entry is a complete, independent target — it can point at a
+// different MCP server entirely, or the same server with a different tool,
+// params, prompt, or auth.
+export const ChatTargetSchema = TargetConfigSchema.extend({
+  chatIds: z.array(z.string().min(1)).min(1),
+  // Per-card access control, scoped to this card's chats. Mirrors the global
+  // telegram access (public/private + allowedUsers). When omitted, the global
+  // telegram access applies to these chats.
+  accessMode: z.enum(["public", "private"]).optional(),
+  allowedUsers: z.array(z.string()).optional(),
+});
+
 export const ServerConfigSchema = z.object({
   port: z.number().min(1).max(65535).default(9634),
 });
@@ -33,12 +48,15 @@ export const ServerConfigSchema = z.object({
 export const ConfigSchema = z.object({
   telegram: TelegramConfigSchema,
   target: TargetConfigSchema,
+  // Optional per-chat target overrides. Matched before the catch-all `target`.
+  chatTargets: z.array(ChatTargetSchema).default([]),
   server: ServerConfigSchema.optional().default({ port: 9634 }),
 });
 
 // Infer types from schemas
 export type TelegramConfig = z.infer<typeof TelegramConfigSchema>;
 export type TargetConfig = z.infer<typeof TargetConfigSchema>;
+export type ChatTargetConfig = z.infer<typeof ChatTargetSchema>;
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 

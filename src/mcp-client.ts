@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
-import { TargetConfig } from "./types.js";
+import { Config, TargetConfig } from "./types.js";
 
 /**
  * Wraps a transport to silently ignore errors when sending
@@ -127,5 +127,73 @@ export class MCPClient {
     if (this.connected) {
       this.disconnect().catch(console.error);
     }
+  }
+}
+
+/**
+ * Routes each chat to its target MCP server. The top-level `target` is the
+ * catch-all default; `chatTargets` entries override it for specific chat IDs.
+ * Holds one MCPClient per distinct target (the default plus each chatTargets
+ * entry) so different chats can talk to different MCP servers, or the same
+ * server with a different tool/params/auth, concurrently.
+ */
+export class MCPClientPool {
+  private defaultTarget!: TargetConfig;
+  private defaultClient!: MCPClient;
+  private chatEntries!: Array<{ chatIds: Set<string>; target: TargetConfig; client: MCPClient }>;
+
+  constructor(config: Config) {
+    this.build(config);
+  }
+
+  private build(config: Config): void {
+    this.defaultTarget = config.target;
+    this.defaultClient = new MCPClient(config.target);
+    this.chatEntries = (config.chatTargets ?? []).map((t) => ({
+      chatIds: new Set(t.chatIds.map(String)),
+      target: t,
+      client: new MCPClient(t),
+    }));
+  }
+
+  /**
+   * Resolve the client + target config for a chat. Returns the first
+   * chatTargets entry that lists this chat, else the catch-all default.
+   */
+  resolve(chatId: string | number): { client: MCPClient; target: TargetConfig } {
+    const id = String(chatId);
+    for (const entry of this.chatEntries) {
+      if (entry.chatIds.has(id)) {
+        return { client: entry.client, target: entry.target };
+      }
+    }
+    return { client: this.defaultClient, target: this.defaultTarget };
+  }
+
+  private allClients(): MCPClient[] {
+    return [this.defaultClient, ...this.chatEntries.map((e) => e.client)];
+  }
+
+  async connectAll(): Promise<void> {
+    await Promise.allSettled(this.allClients().map((c) => c.connect()));
+  }
+
+  async disconnectAll(): Promise<void> {
+    await Promise.allSettled(this.allClients().map((c) => c.disconnect()));
+  }
+
+  /** Tear down existing clients and rebuild from the new config (not connected). */
+  updateConfig(config: Config): void {
+    this.disconnectAll().catch(console.error);
+    this.build(config);
+  }
+
+  /** The default (catch-all) client — used for overall status reporting. */
+  getDefaultClient(): MCPClient {
+    return this.defaultClient;
+  }
+
+  isConnected(): boolean {
+    return this.allClients().some((c) => c.isConnected());
   }
 }
