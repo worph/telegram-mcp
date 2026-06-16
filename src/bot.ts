@@ -615,7 +615,7 @@ export class TelegramBot {
       }
     );
 
-    await this.dispatchToTarget(ctx, messageContext, chatId);
+    await this.dispatchToTarget(ctx, messageContext, chatId, true);
   }
 
   /**
@@ -626,7 +626,8 @@ export class TelegramBot {
   private async dispatchToTarget(
     ctx: Context,
     messageContext: MessageContext,
-    chatId: string
+    chatId: string,
+    isCallback = false
   ): Promise<void> {
     if (!this.mcpClient) {
       console.warn("MCP client not set, skipping tool call");
@@ -686,7 +687,11 @@ export class TelegramBot {
           .map((c: any) => c.text)
           .filter((t: string) => !t.startsWith("[stderr]"));
         const responseText = textParts.join("\n").trim();
-        if (responseText) {
+        // For inline-button (callback) events the target agent sends its own
+        // messages via send_message/edit_message, so don't echo its return value
+        // back into the chat — it just duplicates/adds noise. Text messages still
+        // get the reply.
+        if (responseText && !isCallback) {
           await this.replyWithMarkdown(ctx, responseText);
         }
       }
