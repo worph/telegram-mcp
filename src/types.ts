@@ -118,6 +118,11 @@ export interface InlineButton {
   text: string;
   callbackData?: string;
   url?: string;
+  // When true (callbackData buttons only), the first tap locks the message
+  // server-side: the keyboard collapses to show just the chosen option and
+  // further taps are ignored, all before the tap is forwarded to the target
+  // MCP. Use for one-shot Approve/Decline prompts; leave unset for menus.
+  lockOnTap?: boolean;
 }
 
 // Rows of inline buttons (a Telegram inline keyboard is a 2D grid).

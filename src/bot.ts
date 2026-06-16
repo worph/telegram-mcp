@@ -119,6 +119,11 @@ export class TelegramBot {
   private webhookMiddleware: RequestHandler | null = null;
   // Chat IDs that should start a new conversation on their next message
   private newSessionChats: Set<string> = new Set();
+  // Messages carrying lock-on-tap buttons, keyed by `${chatId}:${messageId}`.
+  // Lets a tap be locked server-side (collapse to the chosen option, ignore
+  // repeats) without waiting for the target LLM to edit the message.
+  private lockButtons: Map<string, { lockData: Set<string>; locked: boolean }> = new Map();
+  private static readonly LOCK_REGISTRY_CAP = 500;
 
   constructor(config: Config) {
     this.config = config;
@@ -305,6 +310,30 @@ export class TelegramBot {
     // immediately to stop the client spinner, then forwarded to the target MCP
     // through the same path as text messages, exposing {{callbackData}} etc.
     this.bot.on("callback_query:data", async (ctx) => {
+      const chatId = String(ctx.callbackQuery.message?.chat.id ?? ctx.chat?.id ?? "");
+      const messageId = ctx.callbackQuery.message?.message_id;
+      const data = ctx.callbackQuery.data;
+      const entry = chatId && messageId ? this.lockButtons.get(`${chatId}:${messageId}`) : undefined;
+
+      // Lock-on-tap button: lock the message server-side before forwarding, so
+      // the action is single-shot and the user instantly sees their choice.
+      if (entry?.lockData.has(data)) {
+        if (entry.locked) {
+          // Already taken by an earlier tap — swallow the duplicate.
+          await ctx.answerCallbackQuery().catch(() => {});
+          return;
+        }
+        entry.locked = true; // set before any await to win double-tap races
+        await ctx.answerCallbackQuery().catch(() => {});
+        await this.lockMessageToChoice(ctx, data).catch((err) =>
+          console.error("Failed to lock message to chosen option:", err)
+        );
+        this.handleCallbackQuery(ctx).catch((err) => {
+          console.error("Error in handleCallbackQuery:", err);
+        });
+        return;
+      }
+
       try {
         await ctx.answerCallbackQuery();
       } catch {
@@ -682,6 +711,61 @@ export class TelegramBot {
     }
   }
 
+  /**
+   * Record which of a message's buttons are lock-on-tap, so a later tap can be
+   * locked server-side. Called after every send/edit that sets buttons. An edit
+   * that drops the lock buttons (or removes the keyboard) clears the entry.
+   */
+  private rememberLockButtons(chatId: string, messageId: number, buttons?: ButtonGrid): void {
+    const key = `${chatId}:${messageId}`;
+    const lockData = new Set<string>();
+    for (const row of buttons ?? []) {
+      for (const btn of row) {
+        if (btn.lockOnTap && btn.callbackData) lockData.add(btn.callbackData);
+      }
+    }
+    if (lockData.size === 0) {
+      this.lockButtons.delete(key);
+      return;
+    }
+    this.lockButtons.set(key, { lockData, locked: false });
+    // Bound memory: Map preserves insertion order, so drop the oldest entries.
+    while (this.lockButtons.size > TelegramBot.LOCK_REGISTRY_CAP) {
+      const oldest = this.lockButtons.keys().next().value;
+      if (oldest === undefined) break;
+      this.lockButtons.delete(oldest);
+    }
+  }
+
+  /**
+   * Lock a tapped message: remove its keyboard entirely (so nothing stays
+   * tappable) and append the chosen option as a plain "✓ <choice>" line so the
+   * decision is still visible. Reads the button label from the message's current
+   * keyboard. Falls back to just stripping the buttons when there's no text to
+   * edit (e.g. a photo caption).
+   */
+  private async lockMessageToChoice(ctx: Context, chosenData: string): Promise<void> {
+    const message = ctx.callbackQuery?.message;
+    const rows = message?.reply_markup?.inline_keyboard;
+    let chosenText: string | undefined;
+    for (const row of rows ?? []) {
+      for (const btn of row) {
+        if ("callback_data" in btn && btn.callback_data === chosenData) {
+          chosenText = btn.text;
+        }
+      }
+    }
+    const choiceLine = `✓ ${chosenText ?? "Done"}`;
+    const original = message && "text" in message ? message.text : undefined;
+    if (original !== undefined) {
+      // Omitting reply_markup removes the keyboard; the appended line records
+      // the choice as plain (non-clickable) text.
+      await ctx.editMessageText(`${original}\n\n${choiceLine}`);
+    } else {
+      await ctx.editMessageReplyMarkup();
+    }
+  }
+
   async sendMessage(
     chatId: string,
     text: string,
@@ -703,6 +787,7 @@ export class TelegramBot {
       text,
       date: Math.floor(Date.now() / 1000),
     });
+    this.rememberLockButtons(chatId, msg.message_id, buttons);
     return msg.message_id;
   }
 
@@ -737,6 +822,8 @@ export class TelegramBot {
     } else {
       await this.bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: replyMarkup });
     }
+    // Keep the lock registry in sync with the message's new keyboard.
+    this.rememberLockButtons(chatId, messageId, opts.buttons);
   }
 
   /**

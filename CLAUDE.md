@@ -34,6 +34,8 @@ Bidirectional Telegram-MCP bridge: acts as both an **MCP server** (exposing Tele
 
 Both text messages and button taps go through the same `dispatchToTarget()` path. A tap is acknowledged immediately (stops the client spinner) and forwarded with the callback fields exposed as template variables — so an LLM can send buttons with `send_message`, receive the tap as a fresh forwarded call, act, and `edit_message` to lock the buttons. `perm:` permission buttons are handled separately and never forwarded.
 
+A button can opt into `lockOnTap: true` (callbackData buttons only). On the first tap the bridge locks the message **server-side before forwarding** — `lockMessageToChoice` removes the keyboard entirely and appends a plain `✓ <chosen>` line to the message text (so the decision stays visible but nothing remains tappable), and further/duplicate taps are swallowed — so Approve/Decline prompts behave as a single click without waiting for the LLM round-trip. The bridge tracks which messages carry lock buttons in an in-memory registry (`bot.ts` `lockButtons`, keyed `chatId:messageId`, kept in sync by `rememberLockButtons` on every send/edit, capped at 500 entries). Non-lock buttons keep the old persist-until-`edit_message` behaviour for menus. The lock state is in-memory and does not survive a restart (degrades gracefully to a forwarded tap).
+
 ### Key Components
 
 - **`src/index.ts`** — Entry point. Wires together bot, MCP client/server, permission services, Express API. Handles graceful shutdown and restart logic.

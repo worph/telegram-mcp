@@ -111,6 +111,10 @@ export class MCPServer {
                           description: "Opaque payload sent back on tap (<=64 bytes), forwarded to the target MCP",
                         },
                         url: { type: "string", description: "Open this URL instead of sending a callback" },
+                        lockOnTap: {
+                          type: "boolean",
+                          description: "One-shot button (callbackData only): the first tap immediately locks the message — the keyboard collapses to just the chosen option and further taps are ignored — before the tap is forwarded. Use for Approve/Decline prompts so the user clicks once; leave unset for menus the user taps repeatedly.",
+                        },
                       },
                       required: ["text"],
                     },
@@ -159,6 +163,10 @@ export class MCPServer {
                         text: { type: "string", description: "Button label" },
                         callbackData: { type: "string", description: "Opaque payload sent back on tap (<=64 bytes)" },
                         url: { type: "string", description: "Open this URL instead of sending a callback" },
+                        lockOnTap: {
+                          type: "boolean",
+                          description: "One-shot button: first tap locks the message to the chosen option before forwarding. See send_message for details.",
+                        },
                       },
                       required: ["text"],
                     },
