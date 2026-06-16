@@ -129,6 +129,8 @@ export interface SendMessageParams {
   text: string;
   parseMode?: "Markdown" | "HTML";
   buttons?: ButtonGrid;
+  // When true, suppress Telegram's auto link preview (the big unfurled card).
+  disablePreview?: boolean;
 }
 
 export interface EditMessageParams {
@@ -137,6 +139,7 @@ export interface EditMessageParams {
   text?: string;
   parseMode?: "Markdown" | "HTML";
   buttons?: ButtonGrid;
+  disablePreview?: boolean;
 }
 
 export interface SendPhotoParams {

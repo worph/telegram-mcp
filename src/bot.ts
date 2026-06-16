@@ -686,7 +686,8 @@ export class TelegramBot {
     chatId: string,
     text: string,
     parseMode?: "Markdown" | "HTML",
-    buttons?: ButtonGrid
+    buttons?: ButtonGrid,
+    disablePreview?: boolean
   ): Promise<number> {
     if (!this.bot) {
       throw new Error("Bot not running");
@@ -695,6 +696,7 @@ export class TelegramBot {
     const msg = await this.bot.api.sendMessage(chatId, text, {
       parse_mode: parseMode,
       reply_markup: buttons && buttons.length > 0 ? toInlineKeyboard(buttons) : undefined,
+      link_preview_options: disablePreview ? { is_disabled: true } : undefined,
     });
     recordMessage(chatId, {
       role: "assistant",
@@ -712,7 +714,7 @@ export class TelegramBot {
   async editMessage(
     chatId: string,
     messageId: number,
-    opts: { text?: string; parseMode?: "Markdown" | "HTML"; buttons?: ButtonGrid }
+    opts: { text?: string; parseMode?: "Markdown" | "HTML"; buttons?: ButtonGrid; disablePreview?: boolean }
   ): Promise<void> {
     if (!this.bot) {
       throw new Error("Bot not running");
@@ -725,6 +727,7 @@ export class TelegramBot {
       await this.bot.api.editMessageText(chatId, messageId, opts.text, {
         parse_mode: opts.parseMode,
         reply_markup: replyMarkup,
+        link_preview_options: opts.disablePreview ? { is_disabled: true } : undefined,
       });
       recordMessage(chatId, {
         role: "assistant",

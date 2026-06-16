@@ -116,6 +116,10 @@ export class MCPServer {
                     },
                   },
                 },
+                disablePreview: {
+                  type: "boolean",
+                  description: "Suppress Telegram's auto link-preview card. Recommended for short notification messages that contain links.",
+                },
               },
               required: ["text"],
             },
@@ -159,6 +163,10 @@ export class MCPServer {
                       required: ["text"],
                     },
                   },
+                },
+                disablePreview: {
+                  type: "boolean",
+                  description: "Suppress Telegram's auto link-preview card on the edited message.",
                 },
               },
               required: ["messageId"],
@@ -297,7 +305,7 @@ export class MCPServer {
               throw new Error("Missing required parameter: text");
             }
             const chatId = this.resolveChatId(params.chatId);
-            const messageId = await this.bot.sendMessage(chatId, params.text, params.parseMode, params.buttons);
+            const messageId = await this.bot.sendMessage(chatId, params.text, params.parseMode, params.buttons, params.disablePreview);
             return {
               content: [
                 {
@@ -321,6 +329,7 @@ export class MCPServer {
               text: params.text,
               parseMode: params.parseMode,
               buttons: params.buttons,
+              disablePreview: params.disablePreview,
             });
             return {
               content: [
