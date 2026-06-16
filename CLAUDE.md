@@ -27,16 +27,18 @@ Bidirectional Telegram-MCP bridge: acts as both an **MCP server** (exposing Tele
 
 ### Data Flow
 
-1. Telegram message → `TelegramBot` (grammY polling/webhook) → resolves `{{variable}}` templates in target params
+1. Telegram message **or inline-button tap (callback query)** → `TelegramBot` (grammY polling/webhook) → resolves `{{variable}}` templates in target params
 2. `MCPClient.callTool()` forwards resolved params to the configured target MCP server
-3. Target LLM processes the message, calls back via `send_message`/`send_photo` tools on this server's MCP endpoint
+3. Target LLM processes the message, calls back via `send_message`/`edit_message`/`send_photo` tools on this server's MCP endpoint
 4. `MCPServer` handles the tool call → `TelegramBot.sendMessage()` replies to the user
+
+Both text messages and button taps go through the same `dispatchToTarget()` path. A tap is acknowledged immediately (stops the client spinner) and forwarded with the callback fields exposed as template variables — so an LLM can send buttons with `send_message`, receive the tap as a fresh forwarded call, act, and `edit_message` to lock the buttons. `perm:` permission buttons are handled separately and never forwarded.
 
 ### Key Components
 
 - **`src/index.ts`** — Entry point. Wires together bot, MCP client/server, permission services, Express API. Handles graceful shutdown and restart logic.
 - **`src/bot.ts`** — grammY bot with commands (`/start`, `/new`, `/mcp`, `/revoke`). `handleTextMessage()` is fire-and-forget (not awaited) to avoid deadlock with permission callback queries. Includes MarkdownV2 escaping for replies.
-- **`src/mcp-server.ts`** — Exposes tools (`send_message`, `send_photo`, `ask`, `get_answer`, `echo`, `mcp_info`, `get_chat_history`) via stateless Streamable HTTP POST (`/mcp`). Each request gets its own `Server` instance.
+- **`src/mcp-server.ts`** — Exposes tools (`send_message`, `edit_message`, `send_photo`, `ask`, `get_answer`, `echo`, `mcp_info`, `get_chat_history`) via stateless Streamable HTTP POST (`/mcp`). Each request gets its own `Server` instance. `send_message` accepts an optional `buttons` inline keyboard and returns the `messageId`; `edit_message` updates a sent message's text/buttons (omit `buttons` to strip them).
 - **`src/mcp-client.ts`** — Connects to the target MCP server via Streamable HTTP transport. Wraps transport to suppress `notifications/initialized` errors. Auto-reconnects on `callTool()` if disconnected. 3-minute timeout on tool calls to allow for permission prompts.
 - **`src/api.ts`** — Express app factory. Mounts MCP router at `/mcp` **before** JSON middleware (MCP needs raw body). REST endpoints under `/api/` for config, status, restart, permission handling, and MCP server info.
 - **`src/permission-service.ts`** — Two services: `PermissionService` (Telegram inline keyboard flow) and `WebPermissionService` (SSE-based browser flow with CSRF protection). Permission routing is based on `chatId`: empty → web, otherwise → Telegram.
@@ -77,3 +79,9 @@ The `ask` tool sends a ForceReply question to Telegram and returns a `questionId
 ### Template Variables
 
 Available in `target.params` mappings: `{{text}}`, `{{chatId}}`, `{{userId}}`, `{{username}}`, `{{firstName}}`, `{{lastName}}`, `{{messageId}}`, `{{date}}`, `{{isBot}}`, `{{languageCode}}`, `{{permissionCallbackUrl}}`
+
+On an inline-button tap these additional variables are set (empty for normal messages); `{{text}}` is also set to the `callbackData` so `{{text}}`-based configs keep working:
+- `{{callbackData}}` — the tapped button's `callbackData`
+- `{{callbackQueryId}}` — Telegram callback query id
+- `{{callbackMessageId}}` — message id the button was attached to (pass to `edit_message`)
+- `{{callbackMessageText}}` — text of that message (carry the run-id / context here, since `callbackData` is capped at 64 bytes)

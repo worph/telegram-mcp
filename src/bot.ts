@@ -1,8 +1,8 @@
-import { Bot, Context, webhookCallback } from "grammy";
+import { Bot, Context, InlineKeyboard, webhookCallback } from "grammy";
 import crypto from "crypto";
 import * as os from "os";
 import { RequestHandler } from "express";
-import { BotStatus, Config, MessageContext } from "./types.js";
+import { BotStatus, ButtonGrid, Config, MessageContext } from "./types.js";
 import { createMessageContext, resolveTemplate } from "./template.js";
 import { MCPClient } from "./mcp-client.js";
 import { PermissionService } from "./permission-service.js";
@@ -76,6 +76,36 @@ function escapeMarkdownV2(text: string): string {
 
 function escapeRaw(text: string): string {
   return text.replace(MD_SPECIAL, "\\$1");
+}
+
+/**
+ * Convert the generic ButtonGrid used by the MCP tools into the Telegram
+ * inline_keyboard shape. Each button becomes either a url button or a
+ * callback_data button; callback_data is validated against Telegram's 64-byte
+ * limit so callers get a clear error instead of a cryptic API rejection.
+ */
+function toInlineKeyboard(rows: ButtonGrid): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  rows.forEach((row, rowIndex) => {
+    if (rowIndex > 0) keyboard.row();
+    for (const btn of row) {
+      if (!btn.text) {
+        throw new Error("Each inline button requires a non-empty 'text'");
+      }
+      if (btn.url) {
+        keyboard.url(btn.text, btn.url);
+        continue;
+      }
+      const data = btn.callbackData ?? "";
+      if (Buffer.byteLength(data, "utf8") > 64) {
+        throw new Error(
+          `Button '${btn.text}': callbackData exceeds Telegram's 64-byte limit. Keep it short (e.g. a verb + short id) and carry larger context in the message text.`
+        );
+      }
+      keyboard.text(btn.text, data);
+    }
+  });
+  return keyboard;
 }
 
 export class TelegramBot {
@@ -258,6 +288,22 @@ export class TelegramBot {
       } else {
         console.warn("Permission service not set, ignoring callback");
       }
+    });
+
+    // Generic inline-button taps (anything that is not a `perm:` permission
+    // button, which is handled above and short-circuits). These are acknowledged
+    // immediately to stop the client spinner, then forwarded to the target MCP
+    // through the same path as text messages, exposing {{callbackData}} etc.
+    this.bot.on("callback_query:data", async (ctx) => {
+      try {
+        await ctx.answerCallbackQuery();
+      } catch {
+        // Query may be too old to answer — proceed with forwarding anyway.
+      }
+      // Fire-and-forget for the same anti-deadlock reason as text messages.
+      this.handleCallbackQuery(ctx).catch((err) => {
+        console.error("Error in handleCallbackQuery:", err);
+      });
     });
 
     this.bot.catch((err) => {
@@ -444,6 +490,78 @@ export class TelegramBot {
       return;
     }
 
+    await this.dispatchToTarget(ctx, messageContext, String(message.chat.id));
+  }
+
+  /**
+   * Handle an inline-button tap: build a MessageContext carrying the callback
+   * fields ({{callbackData}}, {{callbackQueryId}}, {{callbackMessageId}},
+   * {{callbackMessageText}}) and forward it to the target MCP, exactly like a
+   * text message. `text` is set to the callbackData so configs that template on
+   * {{text}} keep working without changes.
+   */
+  private async handleCallbackQuery(ctx: Context): Promise<void> {
+    const query = ctx.callbackQuery;
+    if (!query || !query.data || !query.from) {
+      return;
+    }
+    const msg = query.message;
+    const chatId = String(msg?.chat.id ?? ctx.chat?.id ?? "");
+    if (!chatId) {
+      console.warn("Callback query without a resolvable chat id, ignoring");
+      return;
+    }
+
+    this.status.lastMessageAt = Date.now();
+    this.status.lastChatId = chatId;
+
+    const callbackMessageText = msg && "text" in msg ? (msg.text ?? "") : "";
+
+    console.log(`Received button tap from ${query.from.username || query.from.id}: ${query.data}`);
+
+    // Record the tap so it shows up in get_chat_history as conversation context.
+    recordMessage(chatId, {
+      role: "user",
+      name: query.from.username || query.from.first_name,
+      text: `[button] ${query.data}`,
+      date: Math.floor(Date.now() / 1000),
+    });
+
+    const localUrl = `http://${os.hostname()}:${process.env.PORT || 9634}`;
+    const messageContext: MessageContext = createMessageContext(
+      query.data,
+      chatId,
+      query.from.id,
+      query.from.username,
+      query.from.first_name,
+      query.from.last_name,
+      msg?.message_id ?? 0,
+      Math.floor(Date.now() / 1000),
+      query.from.is_bot,
+      query.from.language_code,
+      `${localUrl}/api/permission`,
+      this.config.telegram.chatId,
+      {
+        data: query.data,
+        queryId: query.id,
+        messageId: msg?.message_id,
+        messageText: callbackMessageText,
+      }
+    );
+
+    await this.dispatchToTarget(ctx, messageContext, chatId);
+  }
+
+  /**
+   * Resolve the target params against the given context, call the target MCP
+   * tool, and reply to the chat with its text output. Shared by the text-message
+   * and inline-button (callback query) paths.
+   */
+  private async dispatchToTarget(
+    ctx: Context,
+    messageContext: MessageContext,
+    chatId: string
+  ): Promise<void> {
     if (!this.mcpClient) {
       console.warn("MCP client not set, skipping tool call");
       return;
@@ -463,7 +581,6 @@ export class TelegramBot {
       ) as Record<string, unknown>;
 
       // If /new was used, start a fresh session and consume the flag
-      const chatId = String(ctx.chat!.id);
       if (this.newSessionChats.has(chatId)) {
         resolvedParams.continueSession = false;
         this.newSessionChats.delete(chatId);
@@ -524,18 +641,58 @@ export class TelegramBot {
     }
   }
 
-  async sendMessage(chatId: string, text: string, parseMode?: "Markdown" | "HTML"): Promise<void> {
+  async sendMessage(
+    chatId: string,
+    text: string,
+    parseMode?: "Markdown" | "HTML",
+    buttons?: ButtonGrid
+  ): Promise<number> {
     if (!this.bot) {
       throw new Error("Bot not running");
     }
 
-    const options = parseMode ? { parse_mode: parseMode } : undefined;
-    await this.bot.api.sendMessage(chatId, text, options);
+    const msg = await this.bot.api.sendMessage(chatId, text, {
+      parse_mode: parseMode,
+      reply_markup: buttons && buttons.length > 0 ? toInlineKeyboard(buttons) : undefined,
+    });
     recordMessage(chatId, {
       role: "assistant",
       text,
       date: Math.floor(Date.now() / 1000),
     });
+    return msg.message_id;
+  }
+
+  /**
+   * Edit a previously sent message's text and/or inline buttons. Passing
+   * `buttons` omitted removes the keyboard (used to "lock" an approval message
+   * after a decision). At least one of text/buttons should be provided.
+   */
+  async editMessage(
+    chatId: string,
+    messageId: number,
+    opts: { text?: string; parseMode?: "Markdown" | "HTML"; buttons?: ButtonGrid }
+  ): Promise<void> {
+    if (!this.bot) {
+      throw new Error("Bot not running");
+    }
+
+    const replyMarkup = opts.buttons && opts.buttons.length > 0 ? toInlineKeyboard(opts.buttons) : undefined;
+
+    if (opts.text !== undefined) {
+      // reply_markup: undefined removes any existing keyboard.
+      await this.bot.api.editMessageText(chatId, messageId, opts.text, {
+        parse_mode: opts.parseMode,
+        reply_markup: replyMarkup,
+      });
+      recordMessage(chatId, {
+        role: "assistant",
+        text: opts.text,
+        date: Math.floor(Date.now() / 1000),
+      });
+    } else {
+      await this.bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: replyMarkup });
+    }
   }
 
   /**

@@ -58,6 +58,13 @@ export interface MessageContext {
   defaultChatId?: string;
   // Resolved prompt template, exposed so params can reference it via {{template}}
   template?: string;
+  // Set only when the update is an inline-button tap (callback query). These are
+  // exposed as {{callbackData}}, {{callbackQueryId}}, {{callbackMessageId}} and
+  // {{callbackMessageText}} so target params can route on a button press.
+  callbackData?: string;
+  callbackQueryId?: string;
+  callbackMessageId?: number;
+  callbackMessageText?: string;
 }
 
 // Web permission SSE event payload
@@ -85,11 +92,33 @@ export interface BotStatus {
   lastChatId?: string;
 }
 
+// A single inline-keyboard button. Exactly one action should be set: a
+// `callbackData` button taps back to the bot (and is forwarded to the target
+// MCP), a `url` button opens a link. callbackData is opaque to the bridge and
+// must be <= 64 bytes (Telegram limit).
+export interface InlineButton {
+  text: string;
+  callbackData?: string;
+  url?: string;
+}
+
+// Rows of inline buttons (a Telegram inline keyboard is a 2D grid).
+export type ButtonGrid = InlineButton[][];
+
 // MCP tool definitions
 export interface SendMessageParams {
   chatId?: string;
   text: string;
   parseMode?: "Markdown" | "HTML";
+  buttons?: ButtonGrid;
+}
+
+export interface EditMessageParams {
+  chatId?: string;
+  messageId: number;
+  text?: string;
+  parseMode?: "Markdown" | "HTML";
+  buttons?: ButtonGrid;
 }
 
 export interface SendPhotoParams {

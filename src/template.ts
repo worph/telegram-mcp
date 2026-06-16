@@ -50,7 +50,13 @@ export function createMessageContext(
   isBot: boolean,
   languageCode: string | undefined,
   permissionCallbackUrl?: string,
-  defaultChatId?: string
+  defaultChatId?: string,
+  callback?: {
+    data?: string;
+    queryId?: string;
+    messageId?: number;
+    messageText?: string;
+  }
 ): MessageContext {
   return {
     text,
@@ -65,5 +71,9 @@ export function createMessageContext(
     languageCode,
     permissionCallbackUrl,
     defaultChatId,
+    callbackData: callback?.data,
+    callbackQueryId: callback?.queryId,
+    callbackMessageId: callback?.messageId,
+    callbackMessageText: callback?.messageText,
   };
 }

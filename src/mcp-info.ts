@@ -29,26 +29,33 @@ These tools are already connected to your MCP client. Just call them directly �
 1. \`send_message\` — Send a text message to Telegram
    • \`text\` (required): Message content
    • \`parseMode\`: "Markdown" or "HTML"
+   • \`buttons\`: Optional inline keyboard (rows of \`{text, callbackData}\` or \`{text, url}\`); a tap is forwarded to the target MCP as \`{{callbackData}}\`
    • \`chatId\` (optional): Defaults to the last active chat
+   • Returns the \`messageId\` (use it with \`edit_message\`)
 
-2. \`send_photo\` — Send a photo to Telegram
+2. \`edit_message\` — Edit a message's text and/or buttons
+   • \`messageId\` (required): From the original \`send_message\`
+   • \`text\`: New text (omit to only change buttons)
+   • \`buttons\`: New inline keyboard (omit to remove the buttons — e.g. to "lock" an approval)
+
+3. \`send_photo\` — Send a photo to Telegram
    • \`url\` (required): Photo URL
    • \`caption\`: Optional caption
    • \`chatId\` (optional): Defaults to the last active chat
 
-3. \`ask\` — Ask the user a question and collect their reply
+4. \`ask\` — Ask the user a question and collect their reply
    • \`question\` (required): The question text
    • \`waitSeconds\`: Wait up to 240s for a quick answer in the same call
    • Returns a \`questionId\` — poll \`get_answer\` until answered (questions stay open up to 24h)
 
-4. \`get_answer\` — Fetch / long-poll the answer to a question
+5. \`get_answer\` — Fetch / long-poll the answer to a question
    • \`questionId\`: From \`ask\` (defaults to the most recent question)
    • \`waitSeconds\`: Long-poll up to 240s per call
 
-5. \`get_chat_history\` — Retrieve recent messages the bot has seen
+6. \`get_chat_history\` — Retrieve recent messages the bot has seen
    • \`limit\`: Max messages to return (default 20)
 
-6. \`mcp_info\` — Show this info again
+7. \`mcp_info\` — Show this info again
 
 _You do not need to specify chatId — the bot automatically routes messages to the correct chat._
 

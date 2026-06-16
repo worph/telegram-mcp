@@ -6,7 +6,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import express, { Request, Response, Router } from "express";
 import { TelegramBot } from "./bot.js";
-import { AskParams, GetAnswerParams, SendMessageParams, SendPhotoParams } from "./types.js";
+import { AskParams, EditMessageParams, GetAnswerParams, SendMessageParams, SendPhotoParams } from "./types.js";
 import { getMcpInfo } from "./mcp-info.js";
 import { getHistory } from "./history.js";
 import {
@@ -96,8 +96,72 @@ export class MCPServer {
                   enum: ["Markdown", "HTML"],
                   description: "Optional parse mode for formatting",
                 },
+                buttons: {
+                  type: "array",
+                  description:
+                    "Optional inline keyboard: an array of button rows (each row is an array of buttons). A button either taps back to the bot — set callbackData, which is forwarded to the target MCP as {{callbackData}} — or opens a link (set url). callbackData must be <=64 bytes; carry larger context in the message text and read it back via {{callbackMessageText}}.",
+                  items: {
+                    type: "array",
+                    items: {
+                      type: "object" as const,
+                      properties: {
+                        text: { type: "string", description: "Button label" },
+                        callbackData: {
+                          type: "string",
+                          description: "Opaque payload sent back on tap (<=64 bytes), forwarded to the target MCP",
+                        },
+                        url: { type: "string", description: "Open this URL instead of sending a callback" },
+                      },
+                      required: ["text"],
+                    },
+                  },
+                },
               },
               required: ["text"],
+            },
+          },
+          {
+            name: "edit_message",
+            description:
+              "Edit a message previously sent by the bot — change its text and/or its inline buttons. Use this to 'lock' an approval message after a decision (e.g. set text to '✅ Approved' and omit buttons to remove them). Provide messageId from the original send. If buttons is omitted, the keyboard is removed.",
+            inputSchema: {
+              type: "object" as const,
+              properties: {
+                chatId: {
+                  type: "string",
+                  description: "The chat ID containing the message (optional if default chatId is configured)",
+                },
+                messageId: {
+                  type: "number",
+                  description: "The message_id of the message to edit (returned when it was sent)",
+                },
+                text: {
+                  type: "string",
+                  description: "New text. Omit to only update the buttons.",
+                },
+                parseMode: {
+                  type: "string",
+                  enum: ["Markdown", "HTML"],
+                  description: "Optional parse mode for formatting the new text",
+                },
+                buttons: {
+                  type: "array",
+                  description: "New inline keyboard (same shape as send_message.buttons). Omit to remove all buttons.",
+                  items: {
+                    type: "array",
+                    items: {
+                      type: "object" as const,
+                      properties: {
+                        text: { type: "string", description: "Button label" },
+                        callbackData: { type: "string", description: "Opaque payload sent back on tap (<=64 bytes)" },
+                        url: { type: "string", description: "Open this URL instead of sending a callback" },
+                      },
+                      required: ["text"],
+                    },
+                  },
+                },
+              },
+              required: ["messageId"],
             },
           },
           {
@@ -233,12 +297,36 @@ export class MCPServer {
               throw new Error("Missing required parameter: text");
             }
             const chatId = this.resolveChatId(params.chatId);
-            await this.bot.sendMessage(chatId, params.text, params.parseMode);
+            const messageId = await this.bot.sendMessage(chatId, params.text, params.parseMode, params.buttons);
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `Message sent to chat ${chatId}`,
+                  text: `Message sent to chat ${chatId} (messageId ${messageId})`,
+                },
+              ],
+            };
+          }
+
+          case "edit_message": {
+            const params = args as unknown as EditMessageParams;
+            if (params.messageId === undefined || params.messageId === null) {
+              throw new Error("Missing required parameter: messageId");
+            }
+            if (params.text === undefined && params.buttons === undefined) {
+              throw new Error("Provide at least one of: text, buttons");
+            }
+            const chatId = this.resolveChatId(params.chatId);
+            await this.bot.editMessage(chatId, params.messageId, {
+              text: params.text,
+              parseMode: params.parseMode,
+              buttons: params.buttons,
+            });
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Message ${params.messageId} in chat ${chatId} edited`,
                 },
               ],
             };
