@@ -79,6 +79,15 @@ function escapeRaw(text: string): string {
 }
 
 /**
+ * Marker prefixed onto a lock-on-tap button's callback_data so the tap handler
+ * can recognise it as one-shot WITHOUT any send-time server state (and therefore
+ * survive a bridge restart). It is stripped again before the tap is forwarded to
+ * the target MCP, so {{callbackData}} stays clean (`approve`/`cancel`/…). Uses a
+ * single non-printing byte that won't collide with real, human-authored payloads.
+ */
+const LOCK_PREFIX = "\u0001";
+
+/**
  * Convert the generic ButtonGrid used by the MCP tools into the Telegram
  * inline_keyboard shape. Each button becomes either a url button or a
  * callback_data button; callback_data is validated against Telegram's 64-byte
@@ -96,7 +105,11 @@ function toInlineKeyboard(rows: ButtonGrid): InlineKeyboard {
         keyboard.url(btn.text, btn.url);
         continue;
       }
-      const data = btn.callbackData ?? "";
+      const raw = btn.callbackData ?? "";
+      // Lock-on-tap buttons carry the marker prefix in their callback_data so the
+      // tap handler recognises them statelessly (no send-time registry that a
+      // restart could wipe). The marker is stripped before forwarding the tap.
+      const data = btn.lockOnTap ? LOCK_PREFIX + raw : raw;
       if (Buffer.byteLength(data, "utf8") > 64) {
         throw new Error(
           `Button '${btn.text}': callbackData exceeds Telegram's 64-byte limit. Keep it short (e.g. a verb + short id) and carry larger context in the message text.`
@@ -119,10 +132,12 @@ export class TelegramBot {
   private webhookMiddleware: RequestHandler | null = null;
   // Chat IDs that should start a new conversation on their next message
   private newSessionChats: Set<string> = new Set();
-  // Messages carrying lock-on-tap buttons, keyed by `${chatId}:${messageId}`.
-  // Lets a tap be locked server-side (collapse to the chosen option, ignore
-  // repeats) without waiting for the target LLM to edit the message.
-  private lockButtons: Map<string, { lockData: Set<string>; locked: boolean }> = new Map();
+  // Messages already locked by a first tap, keyed by `${chatId}:${messageId}`.
+  // Pure in-process race-guard so simultaneous taps collapse exactly once;
+  // lock-ness itself is derived statelessly from the callback_data marker
+  // (LOCK_PREFIX), so collapse keeps working across restarts even though this
+  // set does not survive one.
+  private lockedMessages: Set<string> = new Set();
   private static readonly LOCK_REGISTRY_CAP = 500;
 
   constructor(config: Config) {
@@ -313,17 +328,19 @@ export class TelegramBot {
       const chatId = String(ctx.callbackQuery.message?.chat.id ?? ctx.chat?.id ?? "");
       const messageId = ctx.callbackQuery.message?.message_id;
       const data = ctx.callbackQuery.data;
-      const entry = chatId && messageId ? this.lockButtons.get(`${chatId}:${messageId}`) : undefined;
 
-      // Lock-on-tap button: lock the message server-side before forwarding, so
-      // the action is single-shot and the user instantly sees their choice.
-      if (entry?.lockData.has(data)) {
-        if (entry.locked) {
-          // Already taken by an earlier tap — swallow the duplicate.
+      // Lock-on-tap button: recognised statelessly from the callback_data marker
+      // (so it survives a bridge restart). Lock the message server-side before
+      // forwarding, so the action is single-shot and the user instantly sees
+      // their choice. The marker is stripped before forwarding in handleCallbackQuery.
+      if (data.startsWith(LOCK_PREFIX) && chatId && messageId) {
+        const key = `${chatId}:${messageId}`;
+        if (this.lockedMessages.has(key)) {
+          // Already taken by an earlier tap in this process — swallow the duplicate.
           await ctx.answerCallbackQuery().catch(() => {});
           return;
         }
-        entry.locked = true; // set before any await to win double-tap races
+        this.markMessageLocked(key); // set before any await to win double-tap races
         await ctx.answerCallbackQuery().catch(() => {});
         await this.lockMessageToChoice(ctx, data).catch((err) =>
           console.error("Failed to lock message to chosen option:", err)
@@ -578,24 +595,28 @@ export class TelegramBot {
       return;
     }
 
+    // Strip the lock-on-tap marker so the target MCP sees the clean payload
+    // (e.g. `approve`/`cancel`), never the internal prefix.
+    const data = query.data.startsWith(LOCK_PREFIX) ? query.data.slice(LOCK_PREFIX.length) : query.data;
+
     this.status.lastMessageAt = Date.now();
     this.status.lastChatId = chatId;
 
     const callbackMessageText = msg && "text" in msg ? (msg.text ?? "") : "";
 
-    console.log(`Received button tap from ${query.from.username || query.from.id}: ${query.data}`);
+    console.log(`Received button tap from ${query.from.username || query.from.id}: ${data}`);
 
     // Record the tap so it shows up in get_chat_history as conversation context.
     recordMessage(chatId, {
       role: "user",
       name: query.from.username || query.from.first_name,
-      text: `[button] ${query.data}`,
+      text: `[button] ${data}`,
       date: Math.floor(Date.now() / 1000),
     });
 
     const localUrl = `http://${os.hostname()}:${process.env.PORT || 9634}`;
     const messageContext: MessageContext = createMessageContext(
-      query.data,
+      data,
       chatId,
       query.from.id,
       query.from.username,
@@ -608,7 +629,7 @@ export class TelegramBot {
       `${localUrl}/api/permission`,
       this.config.telegram.chatId,
       {
-        data: query.data,
+        data,
         queryId: query.id,
         messageId: msg?.message_id,
         messageText: callbackMessageText,
@@ -717,28 +738,19 @@ export class TelegramBot {
   }
 
   /**
-   * Record which of a message's buttons are lock-on-tap, so a later tap can be
-   * locked server-side. Called after every send/edit that sets buttons. An edit
-   * that drops the lock buttons (or removes the keyboard) clears the entry.
+   * Mark a message as locked after its first lock-on-tap tap, so a near-
+   * simultaneous second tap in the same process is swallowed. This is only a
+   * race-guard — whether a button is lock-on-tap is decided statelessly from the
+   * callback_data marker, so losing this set on restart never re-enables a
+   * second tap (the message's keyboard is already gone, or gets collapsed again).
    */
-  private rememberLockButtons(chatId: string, messageId: number, buttons?: ButtonGrid): void {
-    const key = `${chatId}:${messageId}`;
-    const lockData = new Set<string>();
-    for (const row of buttons ?? []) {
-      for (const btn of row) {
-        if (btn.lockOnTap && btn.callbackData) lockData.add(btn.callbackData);
-      }
-    }
-    if (lockData.size === 0) {
-      this.lockButtons.delete(key);
-      return;
-    }
-    this.lockButtons.set(key, { lockData, locked: false });
-    // Bound memory: Map preserves insertion order, so drop the oldest entries.
-    while (this.lockButtons.size > TelegramBot.LOCK_REGISTRY_CAP) {
-      const oldest = this.lockButtons.keys().next().value;
+  private markMessageLocked(key: string): void {
+    this.lockedMessages.add(key);
+    // Bound memory: Set preserves insertion order, so drop the oldest entries.
+    while (this.lockedMessages.size > TelegramBot.LOCK_REGISTRY_CAP) {
+      const oldest = this.lockedMessages.values().next().value;
       if (oldest === undefined) break;
-      this.lockButtons.delete(oldest);
+      this.lockedMessages.delete(oldest);
     }
   }
 
@@ -792,7 +804,6 @@ export class TelegramBot {
       text,
       date: Math.floor(Date.now() / 1000),
     });
-    this.rememberLockButtons(chatId, msg.message_id, buttons);
     return msg.message_id;
   }
 
@@ -827,8 +838,6 @@ export class TelegramBot {
     } else {
       await this.bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: replyMarkup });
     }
-    // Keep the lock registry in sync with the message's new keyboard.
-    this.rememberLockButtons(chatId, messageId, opts.buttons);
   }
 
   /**
